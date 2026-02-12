@@ -2,26 +2,28 @@
  * Headless browser integration test for Green Grappler.
  * Verifies: game loads, title screen renders, gameplay starts, coins can be collected.
  *
+ * Controls: WASD/Arrows = move, Space = jump, Enter = rope/fire/select
+ *
  * Usage: node game.test.mjs <game-url>
  * Requires: puppeteer-core, Google Chrome/Chromium
  */
 import puppeteer from 'puppeteer-core';
+import { existsSync } from 'fs';
 
 const GAME_URL = process.argv[2] || 'http://localhost:8080';
 const CHROME = process.env.CHROME_PATH || findChrome();
-const errors = [];
 let passed = 0;
 let failed = 0;
 
 function findChrome() {
   const candidates = [
-    '/etc/profiles/per-user/meros/bin/google-chrome',
     '/usr/bin/google-chrome',
     '/usr/bin/chromium',
     '/usr/bin/chromium-browser',
+    '/etc/profiles/per-user/meros/bin/google-chrome',
   ];
   for (const c of candidates) {
-    try { if (require('fs').existsSync(c)) return c; } catch {}
+    if (existsSync(c)) return c;
   }
   return 'google-chrome';
 }
@@ -39,7 +41,9 @@ function assert(name, condition, detail) {
 async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 async function run() {
-  console.log(`Testing game at ${GAME_URL} with Chrome at ${CHROME}`);
+  console.log(`Testing game at ${GAME_URL} with Chrome at ${CHROME}\n`);
+  console.log('Controls: WASD/Arrows=move, Space=jump, Enter=rope/select\n');
+
   const browser = await puppeteer.launch({
     headless: 'new',
     executablePath: CHROME,
@@ -58,7 +62,7 @@ async function run() {
   });
 
   // --- Test 1: Page loads ---
-  console.log('\n1. Loading game...');
+  console.log('1. Loading game...');
   await page.goto(GAME_URL, { waitUntil: 'networkidle2', timeout: 15000 });
   assert('Page loads', true);
 
@@ -71,7 +75,7 @@ async function run() {
   assert('Canvas is 320x240', canvasInfo?.width === 320 && canvasInfo?.height === 240,
     canvasInfo ? `got ${canvasInfo.width}x${canvasInfo.height}` : 'no canvas');
 
-  // --- Test 3: Wait for assets to load and title screen to render ---
+  // --- Test 3: Title screen renders ---
   console.log('\n2. Waiting for title screen...');
   await sleep(6000);
 
@@ -85,22 +89,21 @@ async function run() {
     }
     return nonBlack;
   });
-  assert('Title screen renders (>50% pixels non-black)', titlePixels > 320 * 240 * 0.5,
+  assert('Title screen renders (>50% non-black)', titlePixels > 320 * 240 * 0.5,
     `${titlePixels} non-black pixels`);
   assert('No JS errors during load', pageErrors.length === 0,
     pageErrors.length > 0 ? pageErrors.join('; ') : undefined);
   assert('No failed asset requests', failedRequests.length === 0,
     failedRequests.length > 0 ? failedRequests.join('; ') : undefined);
 
-  // --- Test 4: Start game ---
-  console.log('\n3. Starting game...');
+  // --- Test 4: Start game with Enter (fire/select) ---
+  console.log('\n3. Starting game (Enter to select)...');
   await page.keyboard.press('Enter');
   await sleep(2000);
 
   const inGame = await page.evaluate(() => {
     const c = document.getElementById('game-canvas');
     const ctx = c.getContext('2d');
-    // Check if the HUD area (top strip) has content - indicates we're in a level
     const data = ctx.getImageData(0, 0, 50, 10).data;
     let hasHUD = false;
     for (let i = 0; i < data.length; i += 4) {
@@ -113,28 +116,58 @@ async function run() {
   });
   assert('Game enters level (HUD visible)', inGame);
 
-  // --- Test 5: Dismiss dialogues and move to collect coins ---
-  console.log('\n4. Testing coin collection...');
-  // Dismiss tutorial dialogues
+  // --- Test 5: Dismiss dialogues with Enter ---
+  console.log('\n4. Dismissing dialogue (Enter)...');
   for (let i = 0; i < 20; i++) {
-    await page.keyboard.press('KeyZ');
+    await page.keyboard.press('Enter');
     await sleep(200);
   }
+  await sleep(500);
 
-  // Move right to reach coins
+  // Helper: hash a region of the canvas for comparison
+  async function canvasHash(x, y, w, h) {
+    return page.evaluate(({x, y, w, h}) => {
+      const c = document.getElementById('game-canvas');
+      const ctx = c.getContext('2d');
+      const data = ctx.getImageData(x, y, w, h).data;
+      // Simple hash of sampled pixels
+      let hash = 0;
+      for (let i = 0; i < data.length; i += 16) {
+        hash = ((hash << 5) - hash + data[i]) | 0;
+      }
+      return hash;
+    }, {x, y, w, h});
+  }
+
+  // Snapshot the game area (below HUD, center of screen)
+  const beforeMove = await canvasHash(0, 20, 320, 220);
+
+  // --- Test 6: WASD movement (D = right) ---
+  console.log('\n5. Testing WASD movement (D=right)...');
+  await page.keyboard.down('KeyD');
+  await sleep(3000);
+  await page.keyboard.up('KeyD');
+  await sleep(500);
+
+  const afterWASD = await canvasHash(0, 20, 320, 220);
+  assert('WASD movement changes screen', beforeMove !== afterWASD);
+
+  // --- Test 7: Arrow movement (Right) ---
+  console.log('\n6. Testing Arrow movement (Right)...');
+  const beforeArrow = await canvasHash(0, 20, 320, 220);
   await page.keyboard.down('ArrowRight');
-  await sleep(4000);
+  await sleep(3000);
   await page.keyboard.up('ArrowRight');
   await sleep(500);
 
-  // Check coin counter in HUD
+  const afterArrow = await canvasHash(0, 20, 320, 220);
+  assert('Arrow movement changes screen', beforeArrow !== afterArrow);
+
+  // --- Test 8: Coin collection ---
+  console.log('\n7. Testing coin collection...');
   const coinCount = await page.evaluate(() => {
-    // Read the HUD text area for the coin counter
-    // The font draws text at position (1, 1) with format "[xN"
-    // We check if the canvas has different content in the coin counter area
     const c = document.getElementById('game-canvas');
     const ctx = c.getContext('2d');
-    // Sample the HUD row for any bright pixels indicating coin count > 0
     const data = ctx.getImageData(20, 0, 30, 10).data;
     let brightPixels = 0;
     for (let i = 0; i < data.length; i += 4) {
@@ -144,6 +177,15 @@ async function run() {
   });
   assert('Coins collected (HUD shows count)', coinCount > 0, `${coinCount} bright pixels in counter`);
 
+  // --- Test 9: Jump with Space ---
+  console.log('\n8. Testing jump (Space)...');
+  const beforeJump = await canvasHash(0, 20, 320, 220);
+  await page.keyboard.press('Space');
+  await sleep(1000);
+  const afterJump = await canvasHash(0, 20, 320, 220);
+  assert('Space triggers jump (screen changes)', beforeJump !== afterJump);
+
+  // --- Test 10: No errors ---
   const postGameErrors = pageErrors.filter(e => !e.includes('AudioContext'));
   assert('No JS errors during gameplay', postGameErrors.length === 0,
     postGameErrors.length > 0 ? postGameErrors.join('; ') : undefined);

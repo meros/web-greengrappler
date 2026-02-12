@@ -1,9 +1,17 @@
 let audioCtx: AudioContext | null = null;
+let masterGain: GainNode | null = null;
 const bufferCache = new Map<string, AudioBuffer>();
 const loadingPromises = new Map<string, Promise<AudioBuffer | null>>();
 
+const SFX_VOLUME = 0.5;
+
 function getContext(): AudioContext {
-  if (!audioCtx) audioCtx = new AudioContext();
+  if (!audioCtx) {
+    audioCtx = new AudioContext();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = SFX_VOLUME;
+    masterGain.connect(audioCtx.destination);
+  }
   return audioCtx;
 }
 
@@ -42,7 +50,7 @@ export const Sound = {
     const ctx = getContext();
     const source = ctx.createBufferSource();
     source.buffer = buffer;
-    source.connect(ctx.destination);
+    source.connect(masterGain!);
     source.start();
   },
   resumeContext(): void {

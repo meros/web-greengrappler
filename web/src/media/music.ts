@@ -15,7 +15,7 @@ function mapPath(path: string): string {
 function createSong(url: string): Song {
   const audio = new Audio(url);
   audio.loop = true;
-  audio.volume = 0.7;
+  audio.volume = 1.0;
   return {
     play(): void {
       audio.currentTime = 0;

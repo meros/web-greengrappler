@@ -85,6 +85,67 @@
           '';
         };
 
+        # Flat copy with symlinks dereferenced — suitable for upload to GCS, Cloud Run, etc.
+        site = pkgs.stdenv.mkDerivation {
+          name = "greengrappler-site";
+          phases = [ "installPhase" ];
+          installPhase = ''
+            mkdir -p $out
+            cp -rL ${webGame}/* $out/
+          '';
+        };
+
+        # Nginx config for the docker image
+        nginxConf = pkgs.writeText "nginx.conf" ''
+          worker_processes 1;
+          error_log /var/log/nginx/error.log warn;
+          pid /run/nginx.pid;
+          events { worker_connections 512; }
+          http {
+            include /etc/nginx/mime.types;
+            default_type application/octet-stream;
+            sendfile on;
+            gzip on;
+            gzip_types text/html application/javascript text/css audio/ogg;
+
+            server {
+              listen 8080;
+              root /tmp/site;
+
+              location ~* \.(js|png|mp3|ogg|txt)$ {
+                expires 1y;
+                add_header Cache-Control "public, immutable";
+              }
+
+              location / {
+                try_files $uri $uri/ /index.html;
+              }
+            }
+          }
+        '';
+
+        # Docker image: nginx serving static files on :8080 (Cloud Run compatible)
+        dockerImage = pkgs.dockerTools.buildLayeredImage {
+          name = "greengrappler";
+          tag = "latest";
+          contents = [
+            pkgs.nginx
+            pkgs.fakeNss
+          ];
+          extraCommands = ''
+            mkdir -p tmp/site var/log/nginx var/cache/nginx run etc/nginx
+            cp ${webGame}/game.js tmp/site/
+            cp ${webGame}/index.html tmp/site/
+            cp -rL ${convertedAssets} tmp/site/assets
+            cp ${nginxConf} etc/nginx/nginx.conf
+            cp ${pkgs.nginx}/conf/mime.types etc/nginx/mime.types
+          '';
+          config = {
+            Cmd = [ "${pkgs.nginx}/bin/nginx" "-g" "daemon off;" ];
+            ExposedPorts = { "8080/tcp" = {}; };
+          };
+        };
+
         jsParseCheck = pkgs.stdenv.mkDerivation {
           name = "greengrappler-js-parse";
           src = webGame;
@@ -106,7 +167,9 @@
 
         packages = {
           default = webGame;
+          inherit site;
           assets = convertedAssets;
+          docker = dockerImage;
         };
 
         apps.default = {
@@ -127,13 +190,24 @@
             xmp
             ffmpeg
             python3
+            google-cloud-sdk
           ];
           shellHook = ''
             echo "Green Grappler dev shell"
-            echo "  Build:       nix build"
-            echo "  Serve:       nix run"
-            echo "  Typecheck:   nix flake check"
-            echo "  Test:        nix run && cd web/test && npm install && CHROME_PATH=\$(which google-chrome || which chromium) node game.test.mjs"
+            echo ""
+            echo "  Local:"
+            echo "    nix build            Build the game"
+            echo "    nix run              Serve locally on :8080"
+            echo "    nix flake check      Run type checks"
+            echo ""
+            echo "  Deploy to GCP (Cloud Storage):"
+            echo "    nix build .#site && gsutil -m rsync -r -d result/ gs://YOUR_BUCKET/"
+            echo ""
+            echo "  Deploy to GCP (Cloud Run):"
+            echo "    nix build .#docker && docker load < result"
+            echo "    docker tag greengrappler:latest gcr.io/PROJECT/greengrappler"
+            echo "    docker push gcr.io/PROJECT/greengrappler"
+            echo "    gcloud run deploy greengrappler --image gcr.io/PROJECT/greengrappler --port 8080 --allow-unauthenticated"
           '';
         };
       }
