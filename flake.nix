@@ -11,7 +11,7 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
-        assetSrc = ./greengrappler/assets/src/main/resources/assets;
+        assetSrc = ./assets-src;
 
         convertedAssets = pkgs.stdenv.mkDerivation {
           name = "greengrappler-assets";
