@@ -7,14 +7,18 @@ export type ExitCallback = () => void;
 
 let exitCallback: ExitCallback | null = null;
 
+function isTouchDevice(): boolean {
+  return ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+}
+
 export const GlobalOptions = {
-  showTouchControls(): boolean { return false; },
+  showTouchControls(): boolean { return isTouchDevice(); },
   dialogueAtTop(): boolean { return true; },
-  avoidHeroAtThumbs(): boolean { return false; },
+  avoidHeroAtThumbs(): boolean { return isTouchDevice(); },
   showFps(): boolean { return false; },
 
-  vibrate(_time: number, _type: VibrationType): void {
-    // No vibration on web
+  vibrate(time: number, _type: VibrationType): void {
+    navigator.vibrate?.(time);
   },
 
   setExitCallback(cb: ExitCallback): void { exitCallback = cb; },

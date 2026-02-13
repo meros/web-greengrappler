@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="screen-orientation" content="landscape">
   <title>Green Grappler</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -14,6 +17,10 @@
       position: absolute;
       top: 50%; left: 50%;
       transform: translate(-50%, -50%);
+      touch-action: none;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
     }
     #loading {
       color: #e7d79c;
@@ -31,13 +38,24 @@
     function resizeCanvas() {
       var c = document.getElementById('game-canvas');
       var w = window.innerWidth, h = window.innerHeight;
-      var scale = Math.min(Math.floor(w / 320), Math.floor(h / 240));
-      if (scale < 1) scale = Math.min(w / 320, h / 240);
+      // On touch devices, use fractional scaling to fill more of the screen
+      var isMobile = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+      var scale;
+      if (isMobile) {
+        scale = Math.min(w / 320, h / 240);
+      } else {
+        scale = Math.min(Math.floor(w / 320), Math.floor(h / 240));
+        if (scale < 1) scale = Math.min(w / 320, h / 240);
+      }
       c.style.width = (320 * scale) + 'px';
       c.style.height = (240 * scale) + 'px';
     }
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
+    // Also resize when orientation changes on mobile
+    window.addEventListener('orientationchange', function() {
+      setTimeout(resizeCanvas, 100);
+    });
   </script>
   <script src="game.js"></script>
 </body>

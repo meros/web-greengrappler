@@ -6,6 +6,7 @@ import { Music } from './media/music.js';
 import { Sound } from './media/sound.js';
 import { SplashScreen } from './screens/splashScreen.js';
 import { TitleScreen } from './screens/titleScreen.js';
+import { TouchControls } from './touchControls.js';
 
 const FRAME_TIME = 1000 / TICKS_PER_SECOND;
 
@@ -102,6 +103,7 @@ function postPreloadInit(): void {
 function update(): void {
   ScreenManager.onLogic();
   Music.update();
+  TouchControls.update();
   if (Input.isPressed(Button.FORCE_QUIT) || ScreenManager.isEmpty()) {
     // On web, just go back to title screen
     if (ScreenManager.isEmpty()) {
@@ -113,6 +115,7 @@ function update(): void {
 function draw(): void {
   ctx.imageSmoothingEnabled = false;
   ScreenManager.draw(ctx);
+  TouchControls.draw(ctx);
 }
 
 function gameLoop(timestamp: number): void {
@@ -151,6 +154,7 @@ function init(): void {
   ctx.imageSmoothingEnabled = false;
 
   Input.init();
+  TouchControls.init(canvas);
   preloadAssets();
 
   requestAnimationFrame(gameLoop);
@@ -159,5 +163,6 @@ function init(): void {
 // Enable audio on first user interaction
 document.addEventListener('click', () => Sound.resumeContext(), { once: true });
 document.addEventListener('keydown', () => Sound.resumeContext(), { once: true });
+document.addEventListener('touchstart', () => Sound.resumeContext(), { once: true });
 
 init();

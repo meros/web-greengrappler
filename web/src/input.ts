@@ -1,6 +1,7 @@
 import { Button } from './constants.js';
+import { touchHeld, touchPressed, touchReleased } from './touchControls.js';
 
-// Separate tracking for keyboard and gamepad so they don't interfere
+// Separate tracking for keyboard, gamepad, and touch so they don't interfere
 const keyboardHeld = new Set<Button>();
 const gamepadHeld = new Set<Button>();
 const prevGamepadHeld = new Set<Button>();
@@ -41,7 +42,7 @@ const GAMEPAD_BUTTON_MAP: ReadonlyArray<readonly [number, Button]> = [
 const STICK_DEADZONE = 0.3;
 
 function isHeldByAny(button: Button): boolean {
-  return keyboardHeld.has(button) || gamepadHeld.has(button);
+  return keyboardHeld.has(button) || gamepadHeld.has(button) || touchHeld.has(button);
 }
 
 function pollGamepads(): void {
@@ -123,9 +124,17 @@ export const Input = {
     pressed.clear();
     released.clear();
     pollGamepads();
+
+    // Merge touch pressed/released into the shared sets
+    for (const btn of touchPressed) pressed.add(btn);
+    for (const btn of touchReleased) released.add(btn);
+    touchPressed.clear();
+    touchReleased.clear();
   },
 
   enable(): void { enabled = true; },
   disable(): void { enabled = false; },
-  hasTouch(): boolean { return false; },
+  hasTouch(): boolean {
+    return ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+  },
 } as const;
