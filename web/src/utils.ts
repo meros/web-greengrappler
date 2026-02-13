@@ -19,9 +19,9 @@ export function rgb(r: number, g: number, b: number): string {
 }
 
 export function selectFeedback(): void {
-  // No-op on web (was vibration on mobile)
+  navigator.vibrate?.(20);
 }
 
 export function selectVibration(): void {
-  // No-op on web
+  navigator.vibrate?.(10);
 }
