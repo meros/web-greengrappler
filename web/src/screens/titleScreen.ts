@@ -38,6 +38,13 @@ export class TitleScreen extends Screen {
   onDraw(ctx: CanvasRenderingContext2D): void {
     this.title.drawFrame(ctx, 0, 0, 0);
 
+    // Draw controls help text
+    if (Input.hasTouch()) {
+      this.font.drawCenter(ctx, 'TOUCH SCREEN TO SHOW CONTROLS', 0, 115, 320, 10);
+    } else {
+      this.font.drawCenter(ctx, 'ARROWS-MOVE SPACE-JUMP CTRL-ROPE', 0, 115, 320, 10);
+    }
+
     if (!this.gameStart)
       this.hand.drawFrame(ctx, 0, 115, 150 + this.selected * 10);
 

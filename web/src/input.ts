@@ -9,7 +9,7 @@ const pressed = new Set<Button>();
 const released = new Set<Button>();
 let enabled = true;
 
-// Keyboard: WASD + Arrows for movement, Space = jump, Enter = rope/fire
+// Keyboard: WASD + Arrows for movement, Space = jump, Ctrl/Enter = rope/fire
 const keyMap = new Map<string, Button>([
   ['ArrowUp', Button.UP],
   ['ArrowDown', Button.DOWN],
@@ -20,6 +20,8 @@ const keyMap = new Map<string, Button>([
   ['KeyA', Button.LEFT],
   ['KeyD', Button.RIGHT],
   ['Space', Button.JUMP],
+  ['ControlLeft', Button.FIRE],
+  ['ControlRight', Button.FIRE],
   ['Enter', Button.FIRE],
   ['Escape', Button.FORCE_QUIT],
   ['KeyP', Button.EXIT],
