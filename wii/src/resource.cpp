@@ -111,6 +111,15 @@ void Resource::preLoad(const std::string& filename) {
     std::string path = mapImagePath(filename);
     if (images_.count(filename)) return;
 
+    // CRITICAL: Check renderer is initialized
+    if (!renderer_) {
+        std::fprintf(stderr, "ERROR: Attempted to preload image %s but renderer_ is NULL!\n", filename.c_str());
+        std::fprintf(stderr, "ERROR: Resource::init() must be called before preLoad()\n");
+        std::fflush(stderr);
+        images_[filename] = {};
+        return;
+    }
+
     SDL_Surface* surface = IMG_Load(path.c_str());
     if (!surface) {
         std::fprintf(stderr, "Failed to load image %s: %s\n", path.c_str(), IMG_GetError());
