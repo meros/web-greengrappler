@@ -10,6 +10,7 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        lib = pkgs.lib;
 
         assetSrc = ./assets-src;
 
@@ -188,7 +189,6 @@
           '';
         };
 
-        # Unit tests for the C++ port (no SDL2 needed for pure logic tests)
         wiiTests = pkgs.stdenv.mkDerivation {
           name = "greengrappler-wii-tests";
           src = ./wii;
@@ -208,81 +208,211 @@
           '';
         };
 
-        # Wii homebrew .dol package (requires devkitPPC — cross-compile helper)
-        wiiHomebrew = pkgs.stdenv.mkDerivation {
-          name = "greengrappler-wii-homebrew";
+        # ── devkitPro cross-compilation toolchain ──────────────────
+        #
+        # devkitPPC and its libraries are distributed as pacman .pkg.tar.zst
+        # packages from https://pkg.devkitpro.org/packages/linux/x86_64/.
+        # We fetch them as fixed-output derivations and unpack into a merged
+        # DEVKITPRO sysroot that the Makefile can use directly.
+        #
+        # To find the current package filenames:
+        #   curl -s https://pkg.devkitpro.org/packages/linux/x86_64/ | grep -oE 'href="[^"]*"'
+        # Then update the names and hashes below.
+        #
+        # When a hash is wrong, Nix will tell you the correct one on first build.
+
+        devkitProBaseUrl = "https://pkg.devkitpro.org/packages/linux/x86_64";
+
+        # Helper: fetch a devkitPro pacman package and unpack it
+        fetchDkpPkg = { name, hash }: pkgs.stdenv.mkDerivation {
+          pname = "dkp-${name}";
+          version = "bin";
+          src = pkgs.fetchurl {
+            url = "${devkitProBaseUrl}/${name}";
+            inherit hash;
+          };
+          nativeBuildInputs = [ pkgs.zstd pkgs.gnutar ];
+          sourceRoot = ".";
+          unpackPhase = ''
+            zstd -d < $src | tar xf -
+          '';
+          installPhase = ''
+            if [ -d opt/devkitpro ]; then
+              mkdir -p $out
+              cp -r opt/devkitpro/* $out/
+            else
+              mkdir -p $out
+              cp -r . $out/
+            fi
+          '';
+        };
+
+        # Build elf2dol from source (tiny C tool, doesn't need devkitPPC)
+        elf2dol = pkgs.stdenv.mkDerivation {
+          pname = "elf2dol";
+          version = "1.0.5";
+          src = pkgs.fetchFromGitHub {
+            owner = "devkitPro";
+            repo = "general-tools";
+            rev = "v1.0.5";
+            hash = "sha256-hrsQ7iUJFoCCDmdVYGaFY8y8BQXGG2GAKmqpVElfgRg=";
+          };
+          buildPhase = ''
+            cd elf2dol
+            $CC -O2 -o elf2dol elf2dol.c
+          '';
+          installPhase = ''
+            mkdir -p $out/bin
+            cp elf2dol/elf2dol $out/bin/
+          '';
+        };
+
+        #
+        # ── Fetch each devkitPro package ──
+        #
+        # These hashes are placeholders. On first `nix build .#wii`, Nix will
+        # fail and print the correct hash for each. Replace them one by one.
+        # Alternatively, run: nix-prefetch-url <url>
+        #
+
+        dkpDevkitPPC = fetchDkpPkg {
+          name = "devkitPPC-r46-1-x86_64.pkg.tar.zst";
+          hash = lib.fakeHash;
+        };
+
+        dkpLibogc = fetchDkpPkg {
+          name = "libogc-2.8.0-1-any.pkg.tar.zst";
+          hash = lib.fakeHash;
+        };
+
+        dkpWiiSDL2 = fetchDkpPkg {
+          name = "wii-sdl2-2.28.5-3-any.pkg.tar.zst";
+          hash = lib.fakeHash;
+        };
+
+        dkpWiiSDL2Image = fetchDkpPkg {
+          name = "wii-sdl2_image-2.8.2-2-any.pkg.tar.zst";
+          hash = lib.fakeHash;
+        };
+
+        dkpWiiSDL2Mixer = fetchDkpPkg {
+          name = "wii-sdl2_mixer-2.8.0-2-any.pkg.tar.zst";
+          hash = lib.fakeHash;
+        };
+
+        dkpWiiLibpng = fetchDkpPkg {
+          name = "wii-libpng-1.6.43-1-any.pkg.tar.zst";
+          hash = lib.fakeHash;
+        };
+
+        dkpWiiZlib = fetchDkpPkg {
+          name = "wii-zlib-1.3.1-2-any.pkg.tar.zst";
+          hash = lib.fakeHash;
+        };
+
+        dkpWiiLibjpeg = fetchDkpPkg {
+          name = "wii-libjpeg-turbo-3.0.3-1-any.pkg.tar.zst";
+          hash = lib.fakeHash;
+        };
+
+        dkpWiiLibvorbisidec = fetchDkpPkg {
+          name = "wii-libvorbisidec-1.2.1-5-any.pkg.tar.zst";
+          hash = lib.fakeHash;
+        };
+
+        dkpWiiLibogg = fetchDkpPkg {
+          name = "wii-libogg-1.3.5-3-any.pkg.tar.zst";
+          hash = lib.fakeHash;
+        };
+
+        # Merge all devkitPro packages into a single sysroot
+        devkitProSysroot = pkgs.symlinkJoin {
+          name = "devkitpro-sysroot";
+          paths = [
+            dkpDevkitPPC
+            dkpLibogc
+            dkpWiiSDL2
+            dkpWiiSDL2Image
+            dkpWiiSDL2Mixer
+            dkpWiiLibpng
+            dkpWiiZlib
+            dkpWiiLibjpeg
+            dkpWiiLibvorbisidec
+            dkpWiiLibogg
+          ];
+        };
+
+        # ── Wii .dol cross-compilation ─────────────────────────────
+        wiiDol = pkgs.stdenv.mkDerivation {
+          name = "greengrappler-wii-dol";
           src = ./wii;
-          phases = [ "installPhase" ];
+
+          nativeBuildInputs = [ elf2dol pkgs.gnumake ];
+
+          # These env vars are how devkitPro's ecosystem finds the sysroot
+          DEVKITPRO = devkitProSysroot;
+          DEVKITPPC = "${devkitProSysroot}/devkitPPC";
+
+          buildPhase = ''
+            export PATH="$DEVKITPPC/bin:$PATH"
+
+            PREFIX=powerpc-eabi-
+            CXX="''${PREFIX}g++"
+
+            MACHDEP="-DGEKKO -mrvl -mcpu=750 -meabi -mhard-float"
+            INCLUDE="-I$DEVKITPRO/libogc/include \
+                     -I$DEVKITPRO/portlibs/wii/include \
+                     -I$DEVKITPRO/portlibs/wii/include/SDL2 \
+                     -Iinclude"
+            LIBDIRS="-L$DEVKITPRO/libogc/lib/wii \
+                     -L$DEVKITPRO/portlibs/wii/lib"
+            LIBS="-lSDL2_mixer -lSDL2_image -lSDL2 -lpng -lz \
+                  -lvorbisidec -logg -ljpeg -lfat -lwiiuse -lbte -logc -lm"
+
+            CXXFLAGS="-std=c++17 -O2 -Wall $MACHDEP $INCLUDE -DHW_RVL"
+
+            echo "Cross-compiling for Wii (powerpc-eabi) ..."
+
+            # Collect all .cpp source files
+            SOURCES=$(find src -name '*.cpp' ! -name 'main.cpp')
+
+            # Compile each source file
+            for f in $SOURCES src/main.cpp; do
+              obj="''${f%.cpp}.o"
+              mkdir -p "$(dirname "$obj")"
+              echo "  CXX $f"
+              $CXX $CXXFLAGS -c "$f" -o "$obj"
+            done
+
+            # Collect all object files
+            OBJECTS=$(find src -name '*.o')
+
+            # Link
+            echo "  LD greengrappler.elf"
+            $CXX $OBJECTS $MACHDEP $LIBDIRS $LIBS -o greengrappler.elf
+
+            # Convert ELF -> DOL (Wii executable format)
+            echo "  ELF2DOL greengrappler.dol"
+            elf2dol greengrappler.elf greengrappler.dol
+          '';
+
           installPhase = ''
             mkdir -p $out/apps/greengrappler
-            # Copy source + assets for building with devkitPPC
-            cp -r $src/* $out/apps/greengrappler/
+
+            cp greengrappler.dol $out/apps/greengrappler/boot.dol
             cp -rL ${wiiAssets}/data $out/apps/greengrappler/
-            # Create HBC meta.xml
+
             cat > $out/apps/greengrappler/meta.xml <<'XML'
-            <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-            <app version="1">
-              <name>Green Grappler</name>
-              <coder>Darkbits</coder>
-              <version>1.0.0</version>
-              <release_date>20260214</release_date>
-              <short_description>2D Grappling Hook Platformer</short_description>
-              <long_description>Green Grappler is a 2D platformer with grappling hook mechanics. Originally made for Speedhack 2011 by Darkbits. Ported to Wii homebrew.</long_description>
-            </app>
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<app version="1">
+  <name>Green Grappler</name>
+  <coder>Darkbits</coder>
+  <version>1.0.0</version>
+  <release_date>20260214</release_date>
+  <short_description>2D Grappling Hook Platformer</short_description>
+  <long_description>Green Grappler is a 2D platformer with grappling hook mechanics. Originally made for Speedhack 2011 by Darkbits. Ported to Wii homebrew.</long_description>
+</app>
 XML
-            # Create Makefile for devkitPPC cross-compilation
-            cat > $out/apps/greengrappler/Makefile.wii <<'MAKE'
-# Green Grappler - Wii Homebrew Makefile
-# Requires: devkitPPC, libogc, SDL2 Wii port
-#
-# Build:
-#   export DEVKITPRO=/opt/devkitpro
-#   export DEVKITPPC=$DEVKITPRO/devkitPPC
-#   export PATH=$DEVKITPPC/bin:$PATH
-#   make -f Makefile.wii
-
-ifeq ($(strip $(DEVKITPRO)),)
-$(error "Set DEVKITPRO in your environment")
-endif
-
-PREFIX  := $(DEVKITPPC)/bin/powerpc-eabi-
-CC      := $(PREFIX)gcc
-CXX     := $(PREFIX)g++
-LD      := $(PREFIX)g++
-
-MACHDEP := -DGEKKO -mrvl -mcpu=750 -meabi -mhard-float
-INCLUDE := -I$(DEVKITPRO)/libogc/include \
-           -I$(DEVKITPRO)/portlibs/wii/include \
-           -I$(DEVKITPRO)/portlibs/wii/include/SDL2 \
-           -Iinclude
-LIBDIRS := -L$(DEVKITPRO)/libogc/lib/wii \
-           -L$(DEVKITPRO)/portlibs/wii/lib
-LIBS    := -lSDL2_mixer -lSDL2_image -lSDL2 -lpng -lz \
-           -lvorbisidec -logg -ljpeg -lfat -lwiiuse -lbte -logc -lm
-
-CXXFLAGS := -std=c++17 -O2 -Wall $(MACHDEP) $(INCLUDE) -DHW_RVL
-LDFLAGS  := $(MACHDEP) $(LIBDIRS) $(LIBS)
-
-SOURCES := $(wildcard src/*.cpp) $(wildcard src/**/*.cpp)
-OBJECTS := $(SOURCES:.cpp=.o)
-TARGET  := greengrappler
-
-.PHONY: all clean
-
-all: $(TARGET).dol
-
-$(TARGET).elf: $(OBJECTS)
-	$(LD) $^ -o $@ $(LDFLAGS)
-
-$(TARGET).dol: $(TARGET).elf
-	$(DEVKITPRO)/tools/bin/elf2dol $< $@
-
-%.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
-
-clean:
-	rm -f $(OBJECTS) $(TARGET).elf $(TARGET).dol
-MAKE
           '';
         };
 
@@ -300,7 +430,7 @@ MAKE
           assets = convertedAssets;
           docker = dockerImage;
           desktop = wiiDesktop;
-          wii = wiiHomebrew;
+          wii = wiiDol;
           wii-assets = wiiAssets;
         };
 
@@ -347,9 +477,9 @@ MAKE
             echo "    nix run .#desktop        Run desktop version"
             echo ""
             echo "  Wii Homebrew:"
-            echo "    nix build .#wii          Package for Wii HBC"
-            echo "    # Then use devkitPPC to compile:"
-            echo "    # cd result/apps/greengrappler && make -f Makefile.wii"
+            echo "    nix build .#wii          Cross-compile to .dol for Wii HBC"
+            echo "    # Output: result/apps/greengrappler/boot.dol"
+            echo "    # Copy result/apps/greengrappler/ to SD card"
             echo ""
             echo "  Tests:"
             echo "    nix flake check          Run all checks (web + C++ tests)"
