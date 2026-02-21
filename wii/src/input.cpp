@@ -1,4 +1,5 @@
 #include "input.h"
+#include <cstdio>
 
 static Button sdlKeyToButton(SDL_Keycode key) {
     switch (key) {
@@ -14,7 +15,39 @@ static Button sdlKeyToButton(SDL_Keycode key) {
     }
 }
 
+// Map SDL joystick button index to game button.
+// SDL2 Wii backend maps: 0=A, 1=B, 2=1, 3=2, 4=-, 5=+, 6=Home, 7=Z, 8=C
+// D-pad is mapped as hat (handled separately).
+static Button joyButtonToButton(int index) {
+    switch (index) {
+        case 0: return Button::JUMP;       // A
+        case 1: return Button::FIRE;       // B
+        case 2: return Button::JUMP;       // 1
+        case 3: return Button::FIRE;       // 2
+        case 5: return Button::EXIT;       // +
+        case 6: return Button::FORCE_QUIT; // Home
+        case 7: return Button::JUMP;       // Nunchuk Z
+        case 8: return Button::FIRE;       // Nunchuk C
+        default: return Button::COUNT;
+    }
+}
+
 void Input::init() {
+#ifdef HW_RVL
+    // On Wii, use joystick API (Wiimotes appear as joysticks, not game controllers)
+    int numJoy = SDL_NumJoysticks();
+    std::fprintf(stderr, "DEBUG: Input::init - %d joysticks found\n", numJoy);
+    std::fflush(stderr);
+    for (int i = 0; i < numJoy; i++) {
+        joystick_ = SDL_JoystickOpen(i);
+        if (joystick_) {
+            std::fprintf(stderr, "DEBUG: Opened joystick %d: %s\n", i, SDL_JoystickName(joystick_));
+            std::fflush(stderr);
+            break;
+        }
+    }
+#else
+    // On desktop, try game controller first, then joystick
     SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
     for (int i = 0; i < SDL_NumJoysticks(); i++) {
         if (SDL_IsGameController(i)) {
@@ -22,6 +55,13 @@ void Input::init() {
             break;
         }
     }
+    if (!controller_) {
+        for (int i = 0; i < SDL_NumJoysticks(); i++) {
+            joystick_ = SDL_JoystickOpen(i);
+            if (joystick_) break;
+        }
+    }
+#endif
 }
 
 void Input::handleEvent(const SDL_Event& event) {
@@ -39,6 +79,7 @@ void Input::handleEvent(const SDL_Event& event) {
             released_.insert(btn);
         }
     }
+#ifndef HW_RVL
     if (event.type == SDL_CONTROLLERDEVICEADDED && !controller_) {
         controller_ = SDL_GameControllerOpen(event.cdevice.which);
     }
@@ -46,34 +87,77 @@ void Input::handleEvent(const SDL_Event& event) {
         SDL_GameControllerClose(controller_);
         controller_ = nullptr;
     }
+#endif
+    // Handle joystick hat (D-pad) events for Wii
+    if (event.type == SDL_JOYHATMOTION && joystick_) {
+        // Clear directional buttons from hat
+        gamepadHeld_.erase(Button::UP);
+        gamepadHeld_.erase(Button::DOWN);
+        gamepadHeld_.erase(Button::LEFT);
+        gamepadHeld_.erase(Button::RIGHT);
+        if (event.jhat.value & SDL_HAT_UP) { gamepadHeld_.insert(Button::UP); pressed_.insert(Button::UP); }
+        if (event.jhat.value & SDL_HAT_DOWN) { gamepadHeld_.insert(Button::DOWN); pressed_.insert(Button::DOWN); }
+        if (event.jhat.value & SDL_HAT_LEFT) { gamepadHeld_.insert(Button::LEFT); pressed_.insert(Button::LEFT); }
+        if (event.jhat.value & SDL_HAT_RIGHT) { gamepadHeld_.insert(Button::RIGHT); pressed_.insert(Button::RIGHT); }
+    }
+    // Handle joystick button events
+    if (event.type == SDL_JOYBUTTONDOWN && joystick_) {
+        std::fprintf(stderr, "DEBUG: Joy button DOWN: %d\n", event.jbutton.button);
+        std::fflush(stderr);
+        Button btn = joyButtonToButton(event.jbutton.button);
+        if (btn != Button::COUNT) {
+            pressed_.insert(btn);
+            gamepadHeld_.insert(btn);
+        }
+    }
+    if (event.type == SDL_JOYBUTTONUP && joystick_) {
+        Button btn = joyButtonToButton(event.jbutton.button);
+        if (btn != Button::COUNT) {
+            released_.insert(btn);
+            gamepadHeld_.erase(btn);
+        }
+    }
 }
 
 void Input::pollGamepads() {
-    gamepadHeld_.clear();
+    // Poll game controller (desktop)
+    if (controller_) {
+        gamepadHeld_.clear();
+        if (SDL_GameControllerGetButton(controller_, SDL_CONTROLLER_BUTTON_DPAD_UP)) gamepadHeld_.insert(Button::UP);
+        if (SDL_GameControllerGetButton(controller_, SDL_CONTROLLER_BUTTON_DPAD_DOWN)) gamepadHeld_.insert(Button::DOWN);
+        if (SDL_GameControllerGetButton(controller_, SDL_CONTROLLER_BUTTON_DPAD_LEFT)) gamepadHeld_.insert(Button::LEFT);
+        if (SDL_GameControllerGetButton(controller_, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) gamepadHeld_.insert(Button::RIGHT);
+        if (SDL_GameControllerGetButton(controller_, SDL_CONTROLLER_BUTTON_A)) gamepadHeld_.insert(Button::JUMP);
+        if (SDL_GameControllerGetButton(controller_, SDL_CONTROLLER_BUTTON_X)) gamepadHeld_.insert(Button::JUMP);
+        if (SDL_GameControllerGetButton(controller_, SDL_CONTROLLER_BUTTON_B)) gamepadHeld_.insert(Button::FIRE);
+        if (SDL_GameControllerGetButton(controller_, SDL_CONTROLLER_BUTTON_Y)) gamepadHeld_.insert(Button::FIRE);
+        if (SDL_GameControllerGetButton(controller_, SDL_CONTROLLER_BUTTON_BACK)) gamepadHeld_.insert(Button::FORCE_QUIT);
+        if (SDL_GameControllerGetButton(controller_, SDL_CONTROLLER_BUTTON_START)) gamepadHeld_.insert(Button::EXIT);
 
-    if (!controller_) return;
+        float lx = SDL_GameControllerGetAxis(controller_, SDL_CONTROLLER_AXIS_LEFTX) / 32768.0f;
+        float ly = SDL_GameControllerGetAxis(controller_, SDL_CONTROLLER_AXIS_LEFTY) / 32768.0f;
+        if (lx < -STICK_DEADZONE) gamepadHeld_.insert(Button::LEFT);
+        if (lx > STICK_DEADZONE) gamepadHeld_.insert(Button::RIGHT);
+        if (ly < -STICK_DEADZONE) gamepadHeld_.insert(Button::UP);
+        if (ly > STICK_DEADZONE) gamepadHeld_.insert(Button::DOWN);
+    }
 
-    // D-pad
-    if (SDL_GameControllerGetButton(controller_, SDL_CONTROLLER_BUTTON_DPAD_UP)) gamepadHeld_.insert(Button::UP);
-    if (SDL_GameControllerGetButton(controller_, SDL_CONTROLLER_BUTTON_DPAD_DOWN)) gamepadHeld_.insert(Button::DOWN);
-    if (SDL_GameControllerGetButton(controller_, SDL_CONTROLLER_BUTTON_DPAD_LEFT)) gamepadHeld_.insert(Button::LEFT);
-    if (SDL_GameControllerGetButton(controller_, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) gamepadHeld_.insert(Button::RIGHT);
-
-    // Buttons
-    if (SDL_GameControllerGetButton(controller_, SDL_CONTROLLER_BUTTON_A)) gamepadHeld_.insert(Button::JUMP);
-    if (SDL_GameControllerGetButton(controller_, SDL_CONTROLLER_BUTTON_X)) gamepadHeld_.insert(Button::JUMP);
-    if (SDL_GameControllerGetButton(controller_, SDL_CONTROLLER_BUTTON_B)) gamepadHeld_.insert(Button::FIRE);
-    if (SDL_GameControllerGetButton(controller_, SDL_CONTROLLER_BUTTON_Y)) gamepadHeld_.insert(Button::FIRE);
-    if (SDL_GameControllerGetButton(controller_, SDL_CONTROLLER_BUTTON_BACK)) gamepadHeld_.insert(Button::FORCE_QUIT);
-    if (SDL_GameControllerGetButton(controller_, SDL_CONTROLLER_BUTTON_START)) gamepadHeld_.insert(Button::EXIT);
-
-    // Left stick
-    float lx = SDL_GameControllerGetAxis(controller_, SDL_CONTROLLER_AXIS_LEFTX) / 32768.0f;
-    float ly = SDL_GameControllerGetAxis(controller_, SDL_CONTROLLER_AXIS_LEFTY) / 32768.0f;
-    if (lx < -STICK_DEADZONE) gamepadHeld_.insert(Button::LEFT);
-    if (lx > STICK_DEADZONE) gamepadHeld_.insert(Button::RIGHT);
-    if (ly < -STICK_DEADZONE) gamepadHeld_.insert(Button::UP);
-    if (ly > STICK_DEADZONE) gamepadHeld_.insert(Button::DOWN);
+    // Poll joystick analog stick (Wii nunchuk or classic controller)
+    if (joystick_ && !controller_) {
+        int numAxes = SDL_JoystickNumAxes(joystick_);
+        if (numAxes >= 2) {
+            float lx = SDL_JoystickGetAxis(joystick_, 0) / 32768.0f;
+            float ly = SDL_JoystickGetAxis(joystick_, 1) / 32768.0f;
+            if (lx < -STICK_DEADZONE) gamepadHeld_.insert(Button::LEFT);
+            else gamepadHeld_.erase(Button::LEFT);
+            if (lx > STICK_DEADZONE) gamepadHeld_.insert(Button::RIGHT);
+            else gamepadHeld_.erase(Button::RIGHT);
+            if (ly < -STICK_DEADZONE) gamepadHeld_.insert(Button::UP);
+            else gamepadHeld_.erase(Button::UP);
+            if (ly > STICK_DEADZONE) gamepadHeld_.insert(Button::DOWN);
+            else gamepadHeld_.erase(Button::DOWN);
+        }
+    }
 
     // Compute pressed/released from gamepad state changes
     for (auto btn : gamepadHeld_) {

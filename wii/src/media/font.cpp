@@ -1,15 +1,60 @@
 #include "media/font.h"
+#include <vector>
+#include <cstdio>
 
 BitmapFont::BitmapFont(const std::string& filename, char startChar, char endChar) {
+    std::fprintf(stderr, "DEBUG: BitmapFont loading '%s'\n", filename.c_str());
+    std::fflush(stderr);
+
     GameImage glyphImage = Resource::getBitmap(filename);
-    if (!glyphImage.texture) return;
+    if (!glyphImage.texture) {
+        std::fprintf(stderr, "DEBUG: BitmapFont - no texture for '%s'\n", filename.c_str());
+        std::fflush(stderr);
+        return;
+    }
+    if (!glyphImage.surface) {
+        std::fprintf(stderr, "DEBUG: BitmapFont - no surface for '%s', cannot scan glyphs\n", filename.c_str());
+        std::fflush(stderr);
+        return;
+    }
+
+    std::fprintf(stderr, "DEBUG: BitmapFont scanning %dx%d image\n", glyphImage.width, glyphImage.height);
+    std::fflush(stderr);
 
     std::vector<char> chars;
     for (char c = startChar; c <= endChar; c++) {
         chars.push_back(c);
     }
 
-    uint32_t separatingColor = glyphImage.getPixel(0, 0);
+    // Lock the surface once for all pixel reads (much faster than per-pixel lock/unlock)
+    SDL_LockSurface(glyphImage.surface);
+
+    auto readPixel = [&](int px, int py) -> uint32_t {
+        px += glyphImage.sx;
+        py += glyphImage.sy;
+        if (px < 0 || py < 0 || px >= glyphImage.surface->w || py >= glyphImage.surface->h) return 0;
+        uint8_t* pixels = static_cast<uint8_t*>(glyphImage.surface->pixels);
+        int bpp = glyphImage.surface->format->BytesPerPixel;
+        uint8_t* p = pixels + py * glyphImage.surface->pitch + px * bpp;
+        uint32_t pixel = 0;
+        switch (bpp) {
+            case 1: pixel = *p; break;
+            case 2: pixel = *reinterpret_cast<uint16_t*>(p); break;
+            case 3:
+                if (SDL_BYTEORDER == SDL_BIG_ENDIAN)
+                    pixel = (p[0] << 16) | (p[1] << 8) | p[2];
+                else
+                    pixel = p[0] | (p[1] << 8) | (p[2] << 16);
+                break;
+            case 4: pixel = *reinterpret_cast<uint32_t*>(p); break;
+        }
+        uint8_t r, g, b, a;
+        SDL_GetRGBA(pixel, glyphImage.surface->format, &r, &g, &b, &a);
+        return (static_cast<uint32_t>(a) << 24) | (static_cast<uint32_t>(r) << 16) |
+               (static_cast<uint32_t>(g) << 8) | static_cast<uint32_t>(b);
+    };
+
+    uint32_t separatingColor = readPixel(0, 0);
     int scanLine = 0;
     int currGlyphIndex = 0;
     int lastRowHeight = 0;
@@ -17,12 +62,12 @@ BitmapFont::BitmapFont(const std::string& filename, char startChar, char endChar
     while (scanLine < glyphImage.height) {
         int x = 0;
         while (x < glyphImage.width) {
-            uint32_t color = glyphImage.getPixel(x, scanLine);
+            uint32_t color = readPixel(x, scanLine);
             if (color != separatingColor) {
                 int y1 = scanLine;
-                while (y1 < glyphImage.height && glyphImage.getPixel(x, y1) != separatingColor) y1++;
+                while (y1 < glyphImage.height && readPixel(x, y1) != separatingColor) y1++;
                 int x1 = x;
-                while (x1 < glyphImage.width && glyphImage.getPixel(x1, scanLine) != separatingColor) x1++;
+                while (x1 < glyphImage.width && readPixel(x1, scanLine) != separatingColor) x1++;
 
                 int w = x1 - x;
                 int h = y1 - scanLine;
@@ -37,13 +82,20 @@ BitmapFont::BitmapFont(const std::string& filename, char startChar, char endChar
             }
             x += 1;
         }
+        if (lastRowHeight == 0) lastRowHeight = 1; // Prevent infinite loop
         scanLine += lastRowHeight + 1;
     }
+
+    SDL_UnlockSurface(glyphImage.surface);
 
     if (glyphs_.find('\n') == glyphs_.end() && glyphs_.find(' ') != glyphs_.end()) {
         glyphs_['\n'] = glyphs_[' '];
     }
     fontHeight_ = lastRowHeight;
+
+    std::fprintf(stderr, "DEBUG: BitmapFont loaded %d glyphs, height=%d\n",
+        static_cast<int>(glyphs_.size()), fontHeight_);
+    std::fflush(stderr);
 }
 
 GameImage BitmapFont::getGlyph(char ch) const {

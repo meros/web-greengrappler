@@ -23,7 +23,7 @@ public:
     void setPosition(Vec2 pos) { position_ = pos; }
     void setVelocity(Vec2 vel) { velocity_ = vel; }
     void setSize(Vec2 s) { size_ = s; halfSize_ = s * 0.5f; }
-    void setRoom(Room* room) { room_ = room; }
+    virtual void setRoom(Room* room) { room_ = room; }
     Room* getRoom() const { return room_; }
 
     bool isRemoved() const { return removed_; }

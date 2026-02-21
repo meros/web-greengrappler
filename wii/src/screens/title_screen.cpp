@@ -10,11 +10,14 @@
 #include "level_description.h"
 #include "screens/level_select_screen.h"
 #include "screens/level_screen.h"
+#include <cstdio>
 
 TitleScreen::TitleScreen() {
+    std::fprintf(stderr, "DEBUG: TitleScreen constructor\n"); std::fflush(stderr);
     font_ = Resource::getFont("data/images/font.bmp");
     hand_ = Resource::getAnimation("data/images/hand.bmp", 1);
     title_ = Resource::getAnimation("data/images/title.bmp", 1);
+    std::fprintf(stderr, "DEBUG: TitleScreen constructor done\n"); std::fflush(stderr);
 }
 
 void TitleScreen::onEntered() {

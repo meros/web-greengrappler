@@ -208,83 +208,99 @@
           '';
         };
 
-        # Wii homebrew .dol package (requires devkitPPC — cross-compile helper)
-        wiiHomebrew = pkgs.stdenv.mkDerivation {
-          name = "greengrappler-wii-homebrew";
-          src = ./wii;
-          phases = [ "installPhase" ];
-          installPhase = ''
+        # ── Wii Homebrew Build ─────────────────────────────────────
+        # Builds Wii .dol using Docker and devkitPPC
+        # Note: Requires relaxed sandbox - see README for setup
+        wiiHomebrew = pkgs.runCommand "greengrappler-wii"
+          {
+            nativeBuildInputs = [ pkgs.docker ];
+            src = ./wii;
+            # Allow network and docker access
+            __noChroot = true;
+            requiredSystemFeatures = [ "big-parallel" ];
+          }
+          ''
+            set -e
+
+            echo ""
+            echo "════════════════════════════════════════════════════════"
+            echo " Building Green Grappler for Wii Homebrew"
+            echo "════════════════════════════════════════════════════════"
+            echo " Target: PowerPC 750 (Gekko) @ 729 MHz"
+            echo " Toolchain: devkitPPC via Docker"
+            echo ""
+
+            # Pull Docker image
+            echo "→ Pulling devkitPPC Docker image..."
+            docker pull devkitpro/devkitppc:latest
+
+            # Copy source
+            cp -r $src/* .
+            chmod -R +w .
+
+            # Copy assets
+            echo "→ Adding game assets..."
+            cp -rL ${wiiAssets}/data .
+
+            # Build
+            echo "→ Compiling..."
+            docker run --rm \
+              -v $(pwd):/project \
+              -w /project \
+              devkitpro/devkitppc:latest \
+              make -j$(nproc)
+
+            # Create output structure
+            echo "→ Packaging..."
             mkdir -p $out/apps/greengrappler
-            # Copy source + assets for building with devkitPPC
-            cp -r $src/* $out/apps/greengrappler/
+
+            cp greengrappler.dol $out/apps/greengrappler/boot.dol
             cp -rL ${wiiAssets}/data $out/apps/greengrappler/
-            # Create HBC meta.xml
+
+            # Create meta.xml
             cat > $out/apps/greengrappler/meta.xml <<'XML'
-            <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-            <app version="1">
-              <name>Green Grappler</name>
-              <coder>Darkbits</coder>
-              <version>1.0.0</version>
-              <release_date>20260214</release_date>
-              <short_description>2D Grappling Hook Platformer</short_description>
-              <long_description>Green Grappler is a 2D platformer with grappling hook mechanics. Originally made for Speedhack 2011 by Darkbits. Ported to Wii homebrew.</long_description>
-            </app>
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<app version="1">
+  <name>Green Grappler</name>
+  <coder>Darkbits</coder>
+  <version>1.0.0</version>
+  <release_date>20260214</release_date>
+  <short_description>2D Grappling Hook Platformer</short_description>
+  <long_description>Green Grappler is a 2D platformer with grappling hook mechanics. Originally made for Speedhack 2011 by Darkbits. Ported to Wii homebrew.</long_description>
+</app>
 XML
-            # Create Makefile for devkitPPC cross-compilation
-            cat > $out/apps/greengrappler/Makefile.wii <<'MAKE'
-# Green Grappler - Wii Homebrew Makefile
-# Requires: devkitPPC, libogc, SDL2 Wii port
-#
-# Build:
-#   export DEVKITPRO=/opt/devkitpro
-#   export DEVKITPPC=$DEVKITPRO/devkitPPC
-#   export PATH=$DEVKITPPC/bin:$PATH
-#   make -f Makefile.wii
 
-ifeq ($(strip $(DEVKITPRO)),)
-$(error "Set DEVKITPRO in your environment")
-endif
+            # Installation guide
+            cat > $out/INSTALL.txt <<'TXT'
+Green Grappler - Wii Homebrew
+══════════════════════════════════════════════════════════
 
-PREFIX  := $(DEVKITPPC)/bin/powerpc-eabi-
-CC      := $(PREFIX)gcc
-CXX     := $(PREFIX)g++
-LD      := $(PREFIX)g++
+Installation:
+1. Copy apps/ folder to SD card root
+2. Insert SD card into Wii
+3. Launch Homebrew Channel
+4. Select "Green Grappler"
 
-MACHDEP := -DGEKKO -mrvl -mcpu=750 -meabi -mhard-float
-INCLUDE := -I$(DEVKITPRO)/libogc/include \
-           -I$(DEVKITPRO)/portlibs/wii/include \
-           -I$(DEVKITPRO)/portlibs/wii/include/SDL2 \
-           -Iinclude
-LIBDIRS := -L$(DEVKITPRO)/libogc/lib/wii \
-           -L$(DEVKITPRO)/portlibs/wii/lib
-LIBS    := -lSDL2_mixer -lSDL2_image -lSDL2 -lpng -lz \
-           -lvorbisidec -logg -ljpeg -lfat -lwiiuse -lbte -logc -lm
+SD Card Structure:
+  SD:/apps/greengrappler/boot.dol
+  SD:/apps/greengrappler/meta.xml
+  SD:/apps/greengrappler/data/...
 
-CXXFLAGS := -std=c++17 -O2 -Wall $(MACHDEP) $(INCLUDE) -DHW_RVL
-LDFLAGS  := $(MACHDEP) $(LIBDIRS) $(LIBS)
+Controls:
+  D-Pad/Analog: Move
+  A: Jump
+  B: Grappling Hook
+  HOME: Exit
+TXT
 
-SOURCES := $(wildcard src/*.cpp) $(wildcard src/**/*.cpp)
-OBJECTS := $(SOURCES:.cpp=.o)
-TARGET  := greengrappler
+            SIZE=$(du -h $out/apps/greengrappler/boot.dol | cut -f1)
 
-.PHONY: all clean
-
-all: $(TARGET).dol
-
-$(TARGET).elf: $(OBJECTS)
-	$(LD) $^ -o $@ $(LDFLAGS)
-
-$(TARGET).dol: $(TARGET).elf
-	$(DEVKITPRO)/tools/bin/elf2dol $< $@
-
-%.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
-
-clean:
-	rm -f $(OBJECTS) $(TARGET).elf $(TARGET).dol
-MAKE
+            echo ""
+            echo "✓ Build complete!"
+            echo "  Binary: boot.dol ($SIZE)"
+            echo "  Output: $out/apps/greengrappler/"
+            echo ""
           '';
-        };
 
       in {
         checks = {
@@ -333,26 +349,58 @@ MAKE
             cmake pkg-config gcc
             SDL2 SDL2_image SDL2_mixer
             # Tools
-            python3
+            python3 docker
           ];
           shellHook = ''
-            echo "Green Grappler dev shell"
+            echo "╔════════════════════════════════════════════════════════╗"
+            echo "║       Green Grappler - Development Environment        ║"
+            echo "╚════════════════════════════════════════════════════════╝"
             echo ""
-            echo "  Web:"
+            echo "  📦 Web Version:"
             echo "    nix build                Build web game"
-            echo "    nix run                  Serve web game on :8080"
+            echo "    nix run                  Serve on http://localhost:8080"
+            echo "    nix build .#docker       Build Docker image"
             echo ""
-            echo "  Desktop (SDL2):"
-            echo "    nix build .#desktop      Build desktop C++ version"
-            echo "    nix run .#desktop        Run desktop version"
+            echo "  🖥️  Desktop Version (SDL2):"
+            echo "    nix build .#desktop      Build native binary"
+            echo "    nix run .#desktop        Build and run"
             echo ""
-            echo "  Wii Homebrew:"
-            echo "    nix build .#wii          Package for Wii HBC"
-            echo "    # Then use devkitPPC to compile:"
-            echo "    # cd result/apps/greengrappler && make -f Makefile.wii"
+            echo "  🎮 Wii Homebrew:"
+            echo "    nix build .#wii --option sandbox relaxed"
+            echo "       Build Wii .dol using Docker + devkitPPC"
             echo ""
-            echo "  Tests:"
-            echo "    nix flake check          Run all checks (web + C++ tests)"
+            echo "    Alternative (without Nix):"
+            echo "      docker build -f Dockerfile.wii ."
+            echo "      docker run --rm -v \$(pwd)/wii:/project devkitpro/devkitppc make"
+            echo ""
+            echo "  🧪 Tests:"
+            echo "    nix flake check          Run all checks"
+            echo "    nix build .#checks.wii-tests"
+            echo ""
+            echo "  📚 More info: cat README.md"
+          '';
+        };
+
+        # Wii development shell with devkitPro tools
+        devShells.wii = pkgs.mkShell {
+          nativeBuildInputs = with pkgs; [
+            docker
+            docker-compose
+          ];
+          shellHook = ''
+            echo "╔════════════════════════════════════════════════════════╗"
+            echo "║     Wii Homebrew Development Shell                    ║"
+            echo "╚════════════════════════════════════════════════════════╝"
+            echo ""
+            echo "  Build with Docker (recommended):"
+            echo "    docker build -f Dockerfile.wii -t greengrappler-wii ."
+            echo "    docker run --rm -v \$(pwd)/wii:/project greengrappler-wii"
+            echo ""
+            echo "  Or build with Nix (experimental):"
+            echo "    nix build .#wii"
+            echo ""
+            echo "  Output: result/apps/greengrappler/boot.dol"
+            echo "  Copy apps/ folder to SD card for Homebrew Channel"
           '';
         };
       }

@@ -24,6 +24,7 @@ private:
     static inline std::set<Button> released_;
     static inline bool enabled_ = true;
     static inline SDL_GameController* controller_ = nullptr;
+    static inline SDL_Joystick* joystick_ = nullptr;
 
     static constexpr float STICK_DEADZONE = 0.3f;
 };

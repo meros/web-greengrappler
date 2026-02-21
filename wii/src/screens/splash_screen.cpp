@@ -3,9 +3,12 @@
 #include "media/animation.h"
 #include "media/sound.h"
 #include "constants.h"
+#include <cstdio>
 
 SplashScreen::SplashScreen() {
+    std::fprintf(stderr, "DEBUG: SplashScreen constructor\n"); std::fflush(stderr);
     logo_ = Resource::getAnimation("data/images/logo.bmp", 1);
+    std::fprintf(stderr, "DEBUG: SplashScreen constructor done\n"); std::fflush(stderr);
 }
 
 void SplashScreen::onDraw(SDL_Renderer* renderer) {

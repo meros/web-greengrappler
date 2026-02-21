@@ -1,5 +1,6 @@
 #include "screen.h"
 #include <algorithm>
+#include <cstdio>
 
 void Screen::exit() {
     ScreenManager::exit(this);
@@ -36,9 +37,20 @@ void ScreenManager::onLogic() {
 }
 
 void ScreenManager::draw(SDL_Renderer* renderer) {
+    static int drawCount = 0;
+    if (drawCount < 5) {
+        std::fprintf(stderr, "DEBUG: ScreenManager::draw #%d (exit=%p enter=%p top=%p)\n",
+            drawCount, (void*)screenToExit_, (void*)screenToEnter_, (void*)getTop());
+        std::fflush(stderr);
+    }
+
     if (screenToExit_ == nullptr && screenToEnter_ == nullptr) {
         auto* top = getTop();
-        if (top) top->onDraw(renderer);
+        if (top) {
+            if (drawCount < 5) { std::fprintf(stderr, "DEBUG: Drawing top screen\n"); std::fflush(stderr); }
+            top->onDraw(renderer);
+            if (drawCount < 5) { std::fprintf(stderr, "DEBUG: Top screen drawn\n"); std::fflush(stderr); }
+        }
     }
 
     if (screenToExit_ != nullptr) {
@@ -55,11 +67,14 @@ void ScreenManager::draw(SDL_Renderer* renderer) {
     }
 
     if (screenToEnter_ != nullptr) {
+        if (drawCount < 5) { std::fprintf(stderr, "DEBUG: Entering screen\n"); std::fflush(stderr); }
         bool enterDone = screenToEnter_->onEnter(renderer);
         if (!enterDone) return;
         screenToEnter_->onEntered();
         screenToEnter_ = nullptr;
+        if (drawCount < 5) { std::fprintf(stderr, "DEBUG: Screen entered\n"); std::fflush(stderr); }
     }
+    drawCount++;
 }
 
 void ScreenManager::clear() {

@@ -4,7 +4,10 @@
 #include <cstdlib>
 
 #ifdef HW_RVL
-#include <fat.h>
+extern "C" {
+    #include <gccore.h>
+    #include <fat.h>
+}
 static const char* SAVE_DIR = "sd:/apps/greengrappler/";
 #else
 static const char* SAVE_DIR = "";

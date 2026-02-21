@@ -1,0 +1,17 @@
+# Wii build artifacts
+wii/build/
+wii/*.dol
+wii/*.elf
+wii/data/
+
+# Nix
+result
+
+# Build/test output dirs
+wii-build/
+wii-test/
+dolphin-game/
+dolphin-test/
+
+# Logs
+*.log
