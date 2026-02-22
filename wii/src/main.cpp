@@ -173,10 +173,10 @@ int main(int argc, char* argv[]) {
         WINDOW_SCALE, SCREEN_WIDTH * WINDOW_SCALE, SCREEN_HEIGHT * WINDOW_SCALE);
     std::fflush(stderr);
 
-    // For Wii, fullscreen mode is more reliable
+    // Wii native output is 640x480 (480p); SDL scales the 320x240 logical size up
 #ifdef HW_RVL
-    const int WIDTH = SCREEN_WIDTH;
-    const int HEIGHT = SCREEN_HEIGHT;
+    const int WIDTH = 640;
+    const int HEIGHT = 480;
     const Uint32 FLAGS = SDL_WINDOW_SHOWN | SDL_WINDOW_FULLSCREEN;
 #else
     const int WIDTH = SCREEN_WIDTH * WINDOW_SCALE;
@@ -267,7 +267,9 @@ int main(int argc, char* argv[]) {
 
     while (running && !ScreenManager::isEmpty()) {
 #ifdef HW_RVL
-        // Wait for controller — pause game until a Wiimote or GC controller connects
+        // Wait for controller — pause game until a Wiimote or GC controller connects.
+        // Must call Input::update() here so pollGamepads() retries tryOpenJoystick()
+        // periodically — the OGC SDL backend may not fire SDL_JOYDEVICEADDED reliably.
         while (!Input::hasController()) {
             SDL_Event ev;
             while (SDL_PollEvent(&ev)) {
@@ -275,6 +277,7 @@ int main(int argc, char* argv[]) {
                 Input::handleEvent(ev);
             }
             if (!running) break;
+            Input::update();
 
             SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
             SDL_RenderClear(renderer);

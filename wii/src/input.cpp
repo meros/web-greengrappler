@@ -150,10 +150,12 @@ void Input::pollGamepads() {
         if (ly > STICK_DEADZONE) gamepadHeld_.insert(Button::DOWN);
     }
 
-    // Keep trying to find a joystick if none opened yet (Wiimotes connect async)
-    if (!joystick_ && !controller_) {
+    // Keep scanning for new joystick devices — Wiimotes connect async via
+    // Bluetooth and may appear after the GC controller is already opened.
+    // SDL_JoystickOpen on an already-opened device is a safe no-op.
+    {
         Uint32 now = SDL_GetTicks();
-        if (now - lastJoystickRetry_ >= 1000) {
+        if (now - lastJoystickRetry_ >= 500) {
             lastJoystickRetry_ = now;
             tryOpenJoystick();
         }
