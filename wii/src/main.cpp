@@ -10,6 +10,7 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
 #include <SDL2/SDL_mixer.h>
+#undef main
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -105,16 +106,7 @@ static void preloadAssets() {
     std::fflush(stderr);
 }
 
-extern "C" int cpp_main(int argc, char* argv[]);
-
-// Entry point - on Wii, called from C wrapper; on desktop, called directly
-#ifndef HW_RVL
 int main(int argc, char* argv[]) {
-    return cpp_main(argc, argv);
-}
-#endif
-
-extern "C" int cpp_main(int argc, char* argv[]) {
     (void)argc;
     (void)argv;
 
@@ -154,8 +146,13 @@ extern "C" int cpp_main(int argc, char* argv[]) {
     std::fprintf(stderr, "DEBUG: CWD set\n");
     std::fflush(stderr);
 
-    // Note: VIDEO_Init and WPAD_Init are handled by SDL2's Wii backend.
-    // Calling them before SDL_Init can cause double-init conflicts.
+    // SDL2's SDL_wii_main.c normally calls WPAD_Init, but we use #undef main
+    // to bypass it (to control init order), so we must init WPAD ourselves.
+    WPAD_Init();
+    WPAD_SetDataFormat(WPAD_CHAN_ALL, WPAD_FMT_BTNS_ACC_IR);
+    WPAD_SetVRes(WPAD_CHAN_ALL, 640, 480);
+    std::fprintf(stderr, "DEBUG: WPAD initialized\n");
+    std::fflush(stderr);
 #endif
 
     std::fprintf(stderr, "DEBUG: Initializing SDL...\n");
@@ -240,16 +237,22 @@ extern "C" int cpp_main(int argc, char* argv[]) {
     std::fprintf(stderr, "DEBUG: Sound initialized\n");
     std::fflush(stderr);
 
-    std::fprintf(stderr, "DEBUG: Initializing Input...\n");
-    std::fflush(stderr);
-    Input::init();
-    std::fprintf(stderr, "DEBUG: Input initialized\n");
-    std::fflush(stderr);
+    SDL_JoystickEventState(SDL_ENABLE);
 
     std::fprintf(stderr, "DEBUG: Preloading assets...\n");
     std::fflush(stderr);
     preloadAssets();
     std::fprintf(stderr, "DEBUG: Assets preloaded\n");
+    std::fflush(stderr);
+
+    // Pump events after preloading so SDL detects controllers that connected
+    // during the multi-second asset load (WPAD/Bluetooth runs asynchronously)
+    SDL_PumpEvents();
+
+    std::fprintf(stderr, "DEBUG: Initializing Input...\n");
+    std::fflush(stderr);
+    Input::init();
+    std::fprintf(stderr, "DEBUG: Input initialized\n");
     std::fflush(stderr);
 
     // Start with splash -> title screen chain
@@ -261,9 +264,33 @@ extern "C" int cpp_main(int argc, char* argv[]) {
     bool running = true;
     Uint64 tickInterval = 1000 / TICKS_PER_SECOND;
     Uint64 lastTick = SDL_GetTicks64();
-    int debugFrameCount = 0;
 
     while (running && !ScreenManager::isEmpty()) {
+#ifdef HW_RVL
+        // Wait for controller — pause game until a Wiimote or GC controller connects
+        while (!Input::hasController()) {
+            SDL_Event ev;
+            while (SDL_PollEvent(&ev)) {
+                if (ev.type == SDL_QUIT) { running = false; break; }
+                Input::handleEvent(ev);
+            }
+            if (!running) break;
+
+            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+            SDL_RenderClear(renderer);
+            // Simple "connect controller" indicator: white bar at top
+            SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+            SDL_Rect bar = {SCREEN_WIDTH / 2 - 40, 4, 80, 4};
+            SDL_RenderFillRect(renderer, &bar);
+            SDL_RenderPresent(renderer);
+            SDL_Delay(100);
+
+            // Reset tick so game doesn't try to catch up after waiting
+            lastTick = SDL_GetTicks64();
+        }
+        if (!running) break;
+#endif
+
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) {
@@ -290,23 +317,10 @@ extern "C" int cpp_main(int argc, char* argv[]) {
             }
         }
 
-        if (debugFrameCount < 5) {
-            std::fprintf(stderr, "DEBUG: Frame %d - clearing\n", debugFrameCount); std::fflush(stderr);
-        }
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderClear(renderer);
-        if (debugFrameCount < 5) {
-            std::fprintf(stderr, "DEBUG: Frame %d - drawing\n", debugFrameCount); std::fflush(stderr);
-        }
         ScreenManager::draw(renderer);
-        if (debugFrameCount < 5) {
-            std::fprintf(stderr, "DEBUG: Frame %d - presenting\n", debugFrameCount); std::fflush(stderr);
-        }
         SDL_RenderPresent(renderer);
-        if (debugFrameCount < 5) {
-            std::fprintf(stderr, "DEBUG: Frame %d - complete\n", debugFrameCount); std::fflush(stderr);
-        }
-        debugFrameCount++;
     }
 
     ScreenManager::clear();

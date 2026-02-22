@@ -1,15 +1,19 @@
 {
-  description = "Green Grappler - A 2D platformer (web + Wii homebrew)";
+  description = "Green Grappler - A 2D platformer (Wii homebrew)";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    devkitNix.url = "github:bandithedoge/devkitNix";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, devkitNix }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = nixpkgs.legacyPackages.${system};
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [ devkitNix.overlays.default ];
+        };
 
         assetSrc = ./assets-src;
 
@@ -65,112 +69,6 @@
           '';
         };
 
-        # ── Web build (existing) ───────────────────────────────────
-        typeCheck = pkgs.stdenv.mkDerivation {
-          name = "greengrappler-typecheck";
-          src = ./web;
-          nativeBuildInputs = [ pkgs.typescript ];
-          buildPhase = ''
-            tsc --noEmit
-          '';
-          installPhase = ''
-            mkdir -p $out
-            echo "typecheck passed" > $out/result
-          '';
-        };
-
-        webGame = pkgs.stdenv.mkDerivation {
-          name = "greengrappler-web";
-          src = ./web;
-          nativeBuildInputs = [ pkgs.esbuild ];
-          buildPhase = ''
-            esbuild src/main.ts \
-              --bundle \
-              --outfile=game.js \
-              --format=iife \
-              --platform=browser \
-              --target=es2020 \
-              --minify
-          '';
-          installPhase = ''
-            mkdir -p $out
-            cp game.js $out/
-            cp index.html $out/
-            ln -s ${convertedAssets} $out/assets
-          '';
-        };
-
-        site = pkgs.stdenv.mkDerivation {
-          name = "greengrappler-site";
-          phases = [ "installPhase" ];
-          installPhase = ''
-            mkdir -p $out
-            cp -rL ${webGame}/* $out/
-          '';
-        };
-
-        nginxConf = pkgs.writeText "nginx.conf" ''
-          worker_processes 1;
-          error_log /var/log/nginx/error.log warn;
-          pid /run/nginx.pid;
-          events { worker_connections 512; }
-          http {
-            include /etc/nginx/mime.types;
-            default_type application/octet-stream;
-            sendfile on;
-            gzip on;
-            gzip_types text/html application/javascript text/css audio/ogg;
-
-            server {
-              listen 8080;
-              root /tmp/site;
-
-              location ~* \.(js|png|mp3|ogg|txt)$ {
-                expires 1y;
-                add_header Cache-Control "public, immutable";
-              }
-
-              location / {
-                try_files $uri $uri/ /index.html;
-              }
-            }
-          }
-        '';
-
-        dockerImage = pkgs.dockerTools.buildLayeredImage {
-          name = "greengrappler";
-          tag = "latest";
-          contents = [
-            pkgs.nginx
-            pkgs.fakeNss
-          ];
-          extraCommands = ''
-            mkdir -p tmp/site var/log/nginx var/cache/nginx run etc/nginx
-            cp ${webGame}/game.js tmp/site/
-            cp ${webGame}/index.html tmp/site/
-            cp -rL ${convertedAssets} tmp/site/assets
-            cp ${nginxConf} etc/nginx/nginx.conf
-            cp ${pkgs.nginx}/conf/mime.types etc/nginx/mime.types
-          '';
-          config = {
-            Cmd = [ "${pkgs.nginx}/bin/nginx" "-g" "daemon off;" ];
-            ExposedPorts = { "8080/tcp" = {}; };
-          };
-        };
-
-        jsParseCheck = pkgs.stdenv.mkDerivation {
-          name = "greengrappler-js-parse";
-          src = webGame;
-          nativeBuildInputs = [ pkgs.nodejs ];
-          buildPhase = ''
-            node -e "new Function(require('fs').readFileSync('$src/game.js','utf-8')); console.log('JS parse OK')"
-          '';
-          installPhase = ''
-            mkdir -p $out
-            echo "js-parse passed" > $out/result
-          '';
-        };
-
         # ── Wii / Desktop C++ build ───────────────────────────────
         wiiDesktop = pkgs.stdenv.mkDerivation {
           name = "greengrappler-desktop";
@@ -209,55 +107,22 @@
         };
 
         # ── Wii Homebrew Build ─────────────────────────────────────
-        # Builds Wii .dol using Docker and devkitPPC
-        # Note: Requires relaxed sandbox - see README for setup
-        wiiHomebrew = pkgs.runCommand "greengrappler-wii"
-          {
-            nativeBuildInputs = [ pkgs.docker ];
-            src = ./wii;
-            # Allow network and docker access
-            __noChroot = true;
-            requiredSystemFeatures = [ "big-parallel" ];
-          }
-          ''
-            set -e
+        # Builds Wii .dol using devkitNix (native Nix cross-compilation)
+        wiiHomebrew = pkgs.devkitNix.stdenvPPC.mkDerivation {
+          name = "greengrappler-wii";
+          src = ./wii;
 
-            echo ""
-            echo "════════════════════════════════════════════════════════"
-            echo " Building Green Grappler for Wii Homebrew"
-            echo "════════════════════════════════════════════════════════"
-            echo " Target: PowerPC 750 (Gekko) @ 729 MHz"
-            echo " Toolchain: devkitPPC via Docker"
-            echo ""
-
-            # Pull Docker image
-            echo "→ Pulling devkitPPC Docker image..."
-            docker pull devkitpro/devkitppc:latest
-
-            # Copy source
-            cp -r $src/* .
-            chmod -R +w .
-
-            # Copy assets
-            echo "→ Adding game assets..."
+          buildPhase = ''
             cp -rL ${wiiAssets}/data .
+            make -j$NIX_BUILD_CORES
+          '';
 
-            # Build
-            echo "→ Compiling..."
-            docker run --rm \
-              -v $(pwd):/project \
-              -w /project \
-              devkitpro/devkitppc:latest \
-              make -j$(nproc)
-
-            # Create output structure
-            echo "→ Packaging..."
+          installPhase = ''
             mkdir -p $out/apps/greengrappler
 
             cp greengrappler.dol $out/apps/greengrappler/boot.dol
             cp -rL ${wiiAssets}/data $out/apps/greengrappler/
 
-            # Create meta.xml
             cat > $out/apps/greengrappler/meta.xml <<'XML'
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <app version="1">
@@ -270,10 +135,8 @@
 </app>
 XML
 
-            # Installation guide
             cat > $out/INSTALL.txt <<'TXT'
 Green Grappler - Wii Homebrew
-══════════════════════════════════════════════════════════
 
 Installation:
 1. Copy apps/ folder to SD card root
@@ -292,116 +155,84 @@ Controls:
   B: Grappling Hook
   HOME: Exit
 TXT
-
-            SIZE=$(du -h $out/apps/greengrappler/boot.dol | cut -f1)
-
-            echo ""
-            echo "✓ Build complete!"
-            echo "  Binary: boot.dol ($SIZE)"
-            echo "  Output: $out/apps/greengrappler/"
-            echo ""
           '';
+        };
 
       in {
         checks = {
-          inherit typeCheck jsParseCheck;
-          build = webGame;
           wii-tests = wiiTests;
           wii-build = wiiDesktop;
         };
 
         packages = {
-          default = webGame;
-          inherit site;
-          assets = convertedAssets;
-          docker = dockerImage;
+          default = wiiDesktop;
           desktop = wiiDesktop;
           wii = wiiHomebrew;
           wii-assets = wiiAssets;
+          assets = convertedAssets;
         };
 
         apps = {
           default = {
-            type = "app";
-            program = toString (pkgs.writeShellScript "serve-greengrappler" ''
-              PORT=''${1:-8080}
-              echo "Serving Green Grappler at http://localhost:$PORT"
-              ${pkgs.python3}/bin/python3 -m http.server "$PORT" --bind 127.0.0.1 --directory ${webGame}
-            '');
-          };
-
-          desktop = {
             type = "app";
             program = toString (pkgs.writeShellScript "run-greengrappler-desktop" ''
               cd ${wiiDesktop}/share/greengrappler
               exec ${wiiDesktop}/bin/greengrappler
             '');
           };
+
+          dolphin = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "run-greengrappler-dolphin" ''
+              SD_DIR="$HOME/.local/share/dolphin-emu/Load/WiiSDSync/apps/greengrappler"
+
+              # Deploy boot.dol and assets from Nix build output
+              mkdir -p "$SD_DIR/data"
+              cp -f ${wiiHomebrew}/apps/greengrappler/boot.dol "$SD_DIR/boot.dol"
+              cp -rLf ${wiiHomebrew}/apps/greengrappler/data/* "$SD_DIR/data/"
+
+              exec ${pkgs.dolphin-emu}/bin/dolphin-emu \
+                --config 'GFX.Settings.AspectRatio=1' \
+                -e "$SD_DIR/boot.dol"
+            '');
+          };
         };
 
-        devShells.default = pkgs.mkShell {
-          nativeBuildInputs = with pkgs; [
-            # Web
-            nodejs esbuild typescript
-            # Assets
-            imagemagick xmp ffmpeg
-            # C++ / Desktop
-            cmake pkg-config gcc
-            SDL2 SDL2_image SDL2_mixer
-            # Tools
-            python3 docker
-          ];
-          shellHook = ''
-            echo "╔════════════════════════════════════════════════════════╗"
-            echo "║       Green Grappler - Development Environment        ║"
-            echo "╚════════════════════════════════════════════════════════╝"
-            echo ""
-            echo "  📦 Web Version:"
-            echo "    nix build                Build web game"
-            echo "    nix run                  Serve on http://localhost:8080"
-            echo "    nix build .#docker       Build Docker image"
-            echo ""
-            echo "  🖥️  Desktop Version (SDL2):"
-            echo "    nix build .#desktop      Build native binary"
-            echo "    nix run .#desktop        Build and run"
-            echo ""
-            echo "  🎮 Wii Homebrew:"
-            echo "    nix build .#wii --option sandbox relaxed"
-            echo "       Build Wii .dol using Docker + devkitPPC"
-            echo ""
-            echo "    Alternative (without Nix):"
-            echo "      docker build -f Dockerfile.wii ."
-            echo "      docker run --rm -v \$(pwd)/wii:/project devkitpro/devkitppc make"
-            echo ""
-            echo "  🧪 Tests:"
-            echo "    nix flake check          Run all checks"
-            echo "    nix build .#checks.wii-tests"
-            echo ""
-            echo "  📚 More info: cat README.md"
-          '';
-        };
+        devShells = {
+          default = pkgs.mkShell {
+            nativeBuildInputs = with pkgs; [
+              # C++ / Desktop
+              cmake pkg-config gcc
+              SDL2 SDL2_image SDL2_mixer
+              # Assets
+              imagemagick xmp ffmpeg
+              # Tools
+              dolphin-emu
+            ];
+            shellHook = ''
+              echo "Green Grappler - Development Environment"
+              echo ""
+              echo "  Desktop (SDL2):"
+              echo "    nix build              Build native binary"
+              echo "    nix run                Build and run"
+              echo ""
+              echo "  Wii Homebrew:"
+              echo "    nix build .#wii"
+              echo ""
+              echo "  Tests:"
+              echo "    nix flake check        Run all checks"
+            '';
+          };
 
-        # Wii development shell with devkitPro tools
-        devShells.wii = pkgs.mkShell {
-          nativeBuildInputs = with pkgs; [
-            docker
-            docker-compose
-          ];
-          shellHook = ''
-            echo "╔════════════════════════════════════════════════════════╗"
-            echo "║     Wii Homebrew Development Shell                    ║"
-            echo "╚════════════════════════════════════════════════════════╝"
-            echo ""
-            echo "  Build with Docker (recommended):"
-            echo "    docker build -f Dockerfile.wii -t greengrappler-wii ."
-            echo "    docker run --rm -v \$(pwd)/wii:/project greengrappler-wii"
-            echo ""
-            echo "  Or build with Nix (experimental):"
-            echo "    nix build .#wii"
-            echo ""
-            echo "  Output: result/apps/greengrappler/boot.dol"
-            echo "  Copy apps/ folder to SD card for Homebrew Channel"
-          '';
+          wii = (pkgs.mkShell.override { stdenv = pkgs.devkitNix.stdenvPPC; }) {
+            shellHook = ''
+              echo "Green Grappler - Wii Dev Shell (devkitPPC)"
+              echo "  DEVKITPRO=$DEVKITPRO"
+              echo "  DEVKITPPC=$DEVKITPPC"
+              echo ""
+              echo "  cd wii && make"
+            '';
+          };
         };
       }
     );

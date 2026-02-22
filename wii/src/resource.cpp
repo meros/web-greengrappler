@@ -120,9 +120,20 @@ void Resource::preLoad(const std::string& filename) {
         return;
     }
 
-    SDL_Surface* surface = IMG_Load(path.c_str());
-    if (!surface) {
+    SDL_Surface* loaded = IMG_Load(path.c_str());
+    if (!loaded) {
         std::fprintf(stderr, "Failed to load image %s: %s\n", path.c_str(), IMG_GetError());
+        images_[filename] = {};
+        return;
+    }
+
+    // Convert to RGBA32 to normalize all pixel formats.
+    // Low-bitdepth indexed surfaces (e.g. 2-bit colormap PNGs) can render
+    // garbled on the Wii's software renderer.
+    SDL_Surface* surface = SDL_ConvertSurfaceFormat(loaded, SDL_PIXELFORMAT_RGBA32, 0);
+    SDL_FreeSurface(loaded);
+    if (!surface) {
+        std::fprintf(stderr, "Failed to convert surface for %s: %s\n", path.c_str(), SDL_GetError());
         images_[filename] = {};
         return;
     }
