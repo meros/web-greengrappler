@@ -47,4 +47,5 @@ private:
     int selectedX_ = 0;
     int selectedY_ = 0;
     Animation* unselectedBg_;
+    Animation* pointerHand_ = nullptr;
 };

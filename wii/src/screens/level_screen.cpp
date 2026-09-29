@@ -87,7 +87,7 @@ void LevelScreen::onLogic() {
         if (selected_ < 0) selected_ = 0;
         else Sound::playSample("data/sounds/select");
     }
-    if (Input::isPressed(Button::FIRE)) {
+    if (Input::isPressed(Button::FIRE) || Input::isPressed(Button::JUMP)) {
         Sound::playSample("data/sounds/select");
         if (selected_ == 0) isExit_ = false;
         else if (selected_ == 1) exit();

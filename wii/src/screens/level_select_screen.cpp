@@ -22,6 +22,7 @@ LevelSelectScreen::LevelSelectScreen() {
     icons_ = Resource::getAnimation("data/images/icons.bmp", 9);
     selectedBg_ = Resource::getAnimation("data/images/selected_level_background.bmp", 6);
     unselectedBg_ = Resource::getAnimation("data/images/unselected_level_background.bmp", 1);
+    pointerHand_ = Resource::getAnimation("data/images/hand.bmp", 1);
 
     for (int i = 0; i < 200; i++) {
         StarParticle p;
@@ -145,6 +146,13 @@ void LevelSelectScreen::onDraw(SDL_Renderer* renderer) {
         }
     }
 
+#ifdef HW_RVL
+    // Draw IR pointer hand on level select
+    if (Input::pointerValid() && !levelSelected_) {
+        pointerHand_->drawFrame(renderer, 0, Input::pointerX(), Input::pointerY());
+    }
+#endif
+
     if (!levelSelected_) {
         const LevelDescription& desc = levelDescs_[selIdx];
         font_->draw(renderer, desc.name, 220, 68);
@@ -192,6 +200,27 @@ void LevelSelectScreen::onLogic() {
         Sound::playSample("data/sounds/select");
     }
 
+#ifdef HW_RVL
+    // IR pointer hit-testing on the 3x3 level grid
+    // Grid origin (107,67), stride 37px, cell size 32x32
+    if (Input::pointerValid()) {
+        int px = Input::pointerX() - 107;
+        int py = Input::pointerY() - 67;
+        if (px >= 0 && py >= 0) {
+            int gx = px / 37;
+            int gy = py / 37;
+            if (gx >= 0 && gx < 3 && gy >= 0 && gy < 3 &&
+                (px % 37) < 32 && (py % 37) < 32) {
+                if (gx != selectedX_ || gy != selectedY_) {
+                    selectedX_ = gx;
+                    selectedY_ = gy;
+                    Sound::playSample("data/sounds/select");
+                }
+            }
+        }
+    }
+#endif
+
     if (Input::isPressed(Button::LEFT)) {
         selectedX_--;
         if (selectedX_ < 0) selectedX_ = 0;
@@ -213,7 +242,7 @@ void LevelSelectScreen::onLogic() {
         else Sound::playSample("data/sounds/select");
     }
 
-    if (Input::isPressed(Button::FIRE)) {
+    if (Input::isPressed(Button::FIRE) || Input::isPressed(Button::JUMP)) {
         int index = selectedY_ * 3 + selectedX_;
         if ((index == 4 && bossLevelUnlocked_) || index != 4) {
             Music::stop();

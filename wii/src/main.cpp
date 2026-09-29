@@ -222,6 +222,10 @@ int main(int argc, char* argv[]) {
     std::fprintf(stderr, "DEBUG: Renderer created\n");
     std::fflush(stderr);
 
+#ifdef HW_RVL
+    SDL_Rect viewport = {OVERSCAN_X, OVERSCAN_Y, VIEWPORT_W, VIEWPORT_H};
+    SDL_RenderSetViewport(renderer, &viewport);
+#endif
     SDL_RenderSetLogicalSize(renderer, SCREEN_WIDTH, SCREEN_HEIGHT);
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0"); // Nearest-neighbor for pixel art
 

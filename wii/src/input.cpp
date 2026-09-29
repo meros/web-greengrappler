@@ -23,8 +23,8 @@ static Button joyButtonToButton(int index) {
     switch (index) {
         case 0: return Button::JUMP;       // A
         case 1: return Button::FIRE;       // B
-        case 2: return Button::JUMP;       // 1
-        case 3: return Button::FIRE;       // 2
+        case 2: return Button::FIRE;       // 1 → grapple
+        case 3: return Button::JUMP;       // 2 → jump
         case 5: return Button::EXIT;       // +
         case 6: return Button::FORCE_QUIT; // Home
         case 7: return Button::JUMP;       // Nunchuk Z
@@ -168,15 +168,27 @@ void Input::pollGamepads() {
         gamepadHeld_.erase(Button::LEFT);
         gamepadHeld_.erase(Button::RIGHT);
 
-        // D-pad hat
-        if (hatState_ & SDL_HAT_UP) gamepadHeld_.insert(Button::UP);
-        if (hatState_ & SDL_HAT_DOWN) gamepadHeld_.insert(Button::DOWN);
-        if (hatState_ & SDL_HAT_LEFT) gamepadHeld_.insert(Button::LEFT);
-        if (hatState_ & SDL_HAT_RIGHT) gamepadHeld_.insert(Button::RIGHT);
+        // Detect nunchuk by checking if analog axes are present
+        int numAxes = SDL_JoystickNumAxes(joystick_);
+        hasNunchuk_ = (numAxes >= 2);
+
+        // D-pad hat — rotate for sideways Wiimote when no nunchuk
+        if (hasNunchuk_) {
+            // Normal orientation (nunchuk/classic controller)
+            if (hatState_ & SDL_HAT_UP) gamepadHeld_.insert(Button::UP);
+            if (hatState_ & SDL_HAT_DOWN) gamepadHeld_.insert(Button::DOWN);
+            if (hatState_ & SDL_HAT_LEFT) gamepadHeld_.insert(Button::LEFT);
+            if (hatState_ & SDL_HAT_RIGHT) gamepadHeld_.insert(Button::RIGHT);
+        } else {
+            // Sideways Wiimote: D-pad rotated 90° clockwise
+            if (hatState_ & SDL_HAT_UP) gamepadHeld_.insert(Button::LEFT);
+            if (hatState_ & SDL_HAT_DOWN) gamepadHeld_.insert(Button::RIGHT);
+            if (hatState_ & SDL_HAT_LEFT) gamepadHeld_.insert(Button::DOWN);
+            if (hatState_ & SDL_HAT_RIGHT) gamepadHeld_.insert(Button::UP);
+        }
 
         // Analog stick (nunchuk or classic controller)
-        int numAxes = SDL_JoystickNumAxes(joystick_);
-        if (numAxes >= 2) {
+        if (hasNunchuk_) {
             float lx = SDL_JoystickGetAxis(joystick_, 0) / 32768.0f;
             float ly = SDL_JoystickGetAxis(joystick_, 1) / 32768.0f;
             if (lx < -STICK_DEADZONE) gamepadHeld_.insert(Button::LEFT);
@@ -185,6 +197,20 @@ void Input::pollGamepads() {
             if (ly > STICK_DEADZONE) gamepadHeld_.insert(Button::DOWN);
         }
     }
+
+#ifdef HW_RVL
+    // Read IR pointer data from WPAD
+    WPAD_ScanPads();
+    WPADData* wpad = WPAD_Data(0);
+    if (wpad && wpad->ir.valid) {
+        pointerX_ = (int)((wpad->ir.x - OVERSCAN_X) * SCREEN_WIDTH / (float)VIEWPORT_W);
+        pointerY_ = (int)((wpad->ir.y - OVERSCAN_Y) * SCREEN_HEIGHT / (float)VIEWPORT_H);
+        pointerValid_ = (pointerX_ >= 0 && pointerX_ < SCREEN_WIDTH &&
+                         pointerY_ >= 0 && pointerY_ < SCREEN_HEIGHT);
+    } else {
+        pointerValid_ = false;
+    }
+#endif
 
     // Compute pressed/released from gamepad state changes
     for (auto btn : gamepadHeld_) {

@@ -30,11 +30,20 @@ void TitleScreen::onEntered() {
 void TitleScreen::onDraw(SDL_Renderer* renderer) {
     title_->drawFrame(renderer, 0, 0, 0);
 
-    // Draw controls help text (no touch on Wii, always show keyboard/gamepad controls)
+    // Draw controls help text
+#ifdef HW_RVL
+    font_->drawCenter(renderer, "D-PAD MOVE  2-JUMP  1-ROPE", 0, 115, 320, 10);
+#else
     font_->drawCenter(renderer, "ARROWS-MOVE SPACE-JUMP CTRL-ROPE", 0, 115, 320, 10);
+#endif
 
-    if (!gameStart_)
+    if (!gameStart_) {
         hand_->drawFrame(renderer, 0, 115, 150 + selected_ * 10);
+#ifdef HW_RVL
+        if (Input::pointerValid())
+            hand_->drawFrame(renderer, 0, Input::pointerX(), Input::pointerY());
+#endif
+    }
 
     if (!gameStart_ || (selected_ != 0 || frameCounter_ % 10 < 5))
         font_->draw(renderer, "NEW GAME", 126, 150);
@@ -65,6 +74,26 @@ void TitleScreen::onLogic() {
         return;
     }
 
+#ifdef HW_RVL
+    // IR pointer hit-testing on menu items
+    if (Input::pointerValid()) {
+        int px = Input::pointerX();
+        int py = Input::pointerY();
+        if (px >= 115 && px <= 210) {
+            int maxItem = hasContinue_ ? 2 : 1;
+            for (int i = 0; i <= maxItem; i++) {
+                if (py >= 150 + i * 10 && py < 150 + i * 10 + 10) {
+                    if (selected_ != i) {
+                        selected_ = i;
+                        Sound::playSample("data/sounds/select");
+                    }
+                    break;
+                }
+            }
+        }
+    }
+#endif
+
     if (Input::isPressed(Button::DOWN)) {
         selected_++;
         if (selected_ > 1 && !hasContinue_) selected_ = 1;
@@ -80,7 +109,7 @@ void TitleScreen::onLogic() {
 
     if (Input::isPressed(Button::EXIT)) exit();
 
-    if (Input::isPressed(Button::FIRE)) {
+    if (Input::isPressed(Button::FIRE) || Input::isPressed(Button::JUMP)) {
         if (selected_ == 0) {
             gameStart_ = true;
             frameCounter_ = 0;

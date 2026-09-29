@@ -17,6 +17,13 @@ enum class Button {
     COUNT
 };
 
+#ifdef HW_RVL
+static constexpr int OVERSCAN_X = 16;
+static constexpr int OVERSCAN_Y = 12;
+static constexpr int VIEWPORT_W = 640 - 2 * OVERSCAN_X;  // 608
+static constexpr int VIEWPORT_H = 480 - 2 * OVERSCAN_Y;  // 456
+#endif
+
 enum class Direction {
     UP,
     DOWN,
