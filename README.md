@@ -10,6 +10,7 @@ A 2D platformer originally made for Speedhack 2011, ported from Java/PlayN to Ty
 - **Space** — Jump
 - **Enter** — Rope / Fire / Select
 - **Gamepad** — Fully supported (D-pad, sticks, A/B/X/Y)
+- **Touch** — On-screen buttons on phones and tablets
 
 ## Development
 
@@ -34,3 +35,11 @@ gcloud run deploy greengrappler --image gcr.io/PROJECT/greengrappler --port 8080
 - **Programming:** Olof Naessen, Per Larsson, Alexander Schrab
 - **Graphics:** Olof Naessen, Timur Kondrakov, Per Larsson
 - **Music:** Olof Naessen
+
+## Status
+
+Playable in the browser, including on phones. Personal project, updated now and then.
+
+## License
+
+No license is granted. The code, graphics and music belong to their authors listed above.
