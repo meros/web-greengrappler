@@ -50,10 +50,13 @@
           '';
         };
 
-        # Dependencies come from web/package-lock.json (npmDepsHash must be
-        # updated when the lockfile changes: set it to pkgs.lib.fakeHash and
-        # copy the hash from the build error).
-        npmDepsHash = "sha256-wOLi+0REdL7S/TJS5HQBQu4aADRvQylUyTO8VLUgn/0=";
+        # Dependencies come straight from web/package-lock.json (importNpmLock
+        # fetches each package by the integrity hash in the lockfile), so there
+        # is no separate npmDepsHash to keep in sync, e.g. on Dependabot PRs.
+        npmLock = {
+          npmDeps = pkgs.importNpmLock { npmRoot = ./web; };
+          npmConfigHook = pkgs.importNpmLock.npmConfigHook;
+        };
 
         webSrc = ./web;
 
@@ -61,7 +64,7 @@
           pname = "greengrappler-typecheck";
           version = "1.0.0";
           src = webSrc;
-          inherit npmDepsHash;
+          inherit (npmLock) npmDeps npmConfigHook;
           dontNpmBuild = true;
           buildPhase = ''
             runHook preBuild
@@ -80,7 +83,7 @@
           pname = "greengrappler-web";
           version = "1.0.0";
           src = webSrc;
-          inherit npmDepsHash;
+          inherit (npmLock) npmDeps npmConfigHook;
           dontNpmBuild = true;
           buildPhase = ''
             runHook preBuild
