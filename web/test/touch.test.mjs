@@ -123,7 +123,19 @@ async function run() {
 
   // --- Test 3: Wait for title screen to render ---
   console.log('\n2. Waiting for assets to load...');
-  await sleep(6000);
+  // The help text only shows for ~5 s after the game starts, so poll for it
+  // instead of sleeping a fixed time (a fast server would miss the window).
+  const helpVisible = () => page.evaluate(() => {
+    const ctx = document.getElementById('game-canvas').getContext('2d');
+    const bright = (x, y) => {
+      const d = ctx.getImageData(x, y, 60, 20).data;
+      let n = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i] > 100 || d[i+1] > 100 || d[i+2] > 100) n++;
+      return n;
+    };
+    return bright(30, 130) > 5 && bright(190, 168) > 5;
+  });
+  for (let i = 0; i < 40 && !(await helpVisible()); i++) await sleep(250);
 
   assert('No JS errors during load', pageErrors.length === 0,
     pageErrors.length > 0 ? pageErrors.join('; ') : undefined);
