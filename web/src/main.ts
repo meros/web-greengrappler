@@ -1,3 +1,4 @@
+import './resize.js';
 import { TICKS_PER_SECOND, Button } from './constants.js';
 import { Input } from './input.js';
 import { Resource } from './resource.js';
