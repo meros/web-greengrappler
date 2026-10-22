@@ -1,0 +1,21 @@
+name: Deploy
+
+# A push to main builds the image (Nix inside Docker, then nginx) and deploys it to Cloud Run
+# in project meros-apps. The service, its deploy account and the keyless login are defined in
+# meros/hosting.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    uses: meros/deploy-workflows/.github/workflows/deploy-cloud-run.yml@main
+    with:
+      app: green-grappler
+    permissions:
+      contents: read
+      id-token: write
