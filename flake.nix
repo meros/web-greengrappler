@@ -50,12 +50,26 @@
           '';
         };
 
-        typeCheck = pkgs.stdenv.mkDerivation {
-          name = "greengrappler-typecheck";
-          src = ./web;
-          nativeBuildInputs = [ pkgs.typescript ];
+        # Dependencies come straight from web/package-lock.json (importNpmLock
+        # fetches each package by the integrity hash in the lockfile), so there
+        # is no separate npmDepsHash to keep in sync, e.g. on Dependabot PRs.
+        npmLock = {
+          npmDeps = pkgs.importNpmLock { npmRoot = ./web; };
+          npmConfigHook = pkgs.importNpmLock.npmConfigHook;
+        };
+
+        webSrc = ./web;
+
+        typeCheck = pkgs.buildNpmPackage {
+          pname = "greengrappler-typecheck";
+          version = "1.0.0";
+          src = webSrc;
+          inherit (npmLock) npmDeps npmConfigHook;
+          dontNpmBuild = true;
           buildPhase = ''
-            tsc --noEmit
+            runHook preBuild
+            node_modules/.bin/tsc --noEmit
+            runHook postBuild
           '';
           installPhase = ''
             mkdir -p $out
@@ -63,24 +77,32 @@
           '';
         };
 
-        webGame = pkgs.stdenv.mkDerivation {
-          name = "greengrappler-web";
-          src = ./web;
-          nativeBuildInputs = [ pkgs.esbuild ];
+        # The bundle is content-hashed (game-<hash>.js) and index.html is
+        # rewritten to point at it, so the file can be cached forever.
+        webGame = pkgs.buildNpmPackage {
+          pname = "greengrappler-web";
+          version = "1.0.0";
+          src = webSrc;
+          inherit (npmLock) npmDeps npmConfigHook;
+          dontNpmBuild = true;
           buildPhase = ''
-            # Bundle TypeScript with esbuild
-            esbuild src/main.ts \
+            runHook preBuild
+            node_modules/.bin/esbuild src/main.ts \
               --bundle \
-              --outfile=game.js \
+              --outdir=out \
+              --entry-names='game-[hash]' \
               --format=iife \
               --platform=browser \
               --target=es2020 \
               --minify
+            bundle=$(basename out/game-*.js)
+            grep -q 'src="game.js"' index.html
+            sed "s|src=\"game.js\"|src=\"$bundle\"|" index.html > out/index.html
+            runHook postBuild
           '';
           installPhase = ''
             mkdir -p $out
-            cp game.js $out/
-            cp index.html $out/
+            cp out/game-*.js out/index.html $out/
             ln -s ${convertedAssets} $out/assets
           '';
         };
@@ -95,63 +117,14 @@
           '';
         };
 
-        # Nginx config for the docker image
-        nginxConf = pkgs.writeText "nginx.conf" ''
-          worker_processes 1;
-          error_log /var/log/nginx/error.log warn;
-          pid /run/nginx.pid;
-          events { worker_connections 512; }
-          http {
-            include /etc/nginx/mime.types;
-            default_type application/octet-stream;
-            sendfile on;
-            gzip on;
-            gzip_types text/html application/javascript text/css audio/ogg;
-
-            server {
-              listen 8080;
-              root /tmp/site;
-
-              location ~* \.(js|png|mp3|ogg|txt)$ {
-                expires 1y;
-                add_header Cache-Control "public, immutable";
-              }
-
-              location / {
-                try_files $uri $uri/ /index.html;
-              }
-            }
-          }
-        '';
-
-        # Docker image: nginx serving static files on :8080 (Cloud Run compatible)
-        dockerImage = pkgs.dockerTools.buildLayeredImage {
-          name = "greengrappler";
-          tag = "latest";
-          contents = [
-            pkgs.nginx
-            pkgs.fakeNss
-          ];
-          extraCommands = ''
-            mkdir -p tmp/site var/log/nginx var/cache/nginx run etc/nginx
-            cp ${webGame}/game.js tmp/site/
-            cp ${webGame}/index.html tmp/site/
-            cp -rL ${convertedAssets} tmp/site/assets
-            cp ${nginxConf} etc/nginx/nginx.conf
-            cp ${pkgs.nginx}/conf/mime.types etc/nginx/mime.types
-          '';
-          config = {
-            Cmd = [ "${pkgs.nginx}/bin/nginx" "-g" "daemon off;" ];
-            ExposedPorts = { "8080/tcp" = {}; };
-          };
-        };
-
         jsParseCheck = pkgs.stdenv.mkDerivation {
           name = "greengrappler-js-parse";
           src = webGame;
           nativeBuildInputs = [ pkgs.nodejs ];
           buildPhase = ''
-            node -e "new Function(require('fs').readFileSync('$src/game.js','utf-8')); console.log('JS parse OK')"
+            for f in $src/game-*.js; do
+              node -e "new Function(require('fs').readFileSync('$f','utf-8')); console.log('JS parse OK: $f')"
+            done
           '';
           installPhase = ''
             mkdir -p $out
@@ -169,7 +142,6 @@
           default = webGame;
           inherit site;
           assets = convertedAssets;
-          docker = dockerImage;
         };
 
         apps.default = {
@@ -200,14 +172,10 @@
             echo "    nix run              Serve locally on :8080"
             echo "    nix flake check      Run type checks"
             echo ""
-            echo "  Deploy to GCP (Cloud Storage):"
-            echo "    nix build .#site && gsutil -m rsync -r -d result/ gs://YOUR_BUCKET/"
+            echo "  Test (needs Chrome, CHROME_PATH if not on PATH):"
+            echo "    nix build .#site -o result && cd web && npm ci && SITE_DIR=../result npm test"
             echo ""
-            echo "  Deploy to GCP (Cloud Run):"
-            echo "    nix build .#docker && docker load < result"
-            echo "    docker tag greengrappler:latest gcr.io/PROJECT/greengrappler"
-            echo "    docker push gcr.io/PROJECT/greengrappler"
-            echo "    gcloud run deploy greengrappler --image gcr.io/PROJECT/greengrappler --port 8080 --allow-unauthenticated"
+            echo "  Deploys run from GitHub Actions on push to main (see README)."
           '';
         };
       }

@@ -24,6 +24,7 @@ function mapPath(path: string): string {
 async function loadBuffer(url: string): Promise<AudioBuffer | null> {
   try {
     const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.arrayBuffer();
     return await getContext().decodeAudioData(data);
   } catch {

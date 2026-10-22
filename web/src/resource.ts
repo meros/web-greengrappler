@@ -155,7 +155,7 @@ export const Resource = {
     const url = mapTextPath(filename);
     pendingLoads++;
     fetch(url)
-      .then(r => r.text())
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.text(); })
       .then(text => { preloadedTexts.set(filename, text); completedLoads++; })
       .catch(() => { console.warn(`Failed to load: ${url}`); completedLoads++; });
   },

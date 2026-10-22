@@ -180,7 +180,7 @@ async function run() {
   // --- Test 9: Jump with Space ---
   console.log('\n8. Testing jump (Space)...');
   const beforeJump = await canvasHash(0, 20, 320, 220);
-  await page.keyboard.press('Space');
+  await page.keyboard.press('Space', { delay: 150 }); // held across a few game ticks
   await sleep(1000);
   const afterJump = await canvasHash(0, 20, 320, 220);
   assert('Space triggers jump (screen changes)', beforeJump !== afterJump);

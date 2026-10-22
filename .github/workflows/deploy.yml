@@ -12,7 +12,14 @@ permissions:
   contents: read
 
 jobs:
+  # Typecheck, build and browser tests (see check.yml). Deploy waits for it.
+  check:
+    uses: ./.github/workflows/check.yml
+    permissions:
+      contents: read
+
   deploy:
+    needs: check
     uses: meros/deploy-workflows/.github/workflows/deploy-cloud-run.yml@main
     with:
       app: green-grappler

@@ -4,12 +4,15 @@ const dataMap = new Map<string, string>();
 export const GameState = {
   clear(): void {
     dataMap.clear();
-    const keysToRemove: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key?.startsWith(PREFIX)) keysToRemove.push(key);
-    }
-    for (const key of keysToRemove) localStorage.removeItem(key);
+    // localStorage can throw (blocked storage, private mode); play on without saves.
+    try {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key?.startsWith(PREFIX)) keysToRemove.push(key);
+      }
+      for (const key of keysToRemove) localStorage.removeItem(key);
+    } catch { /* storage unavailable */ }
   },
 
   getInt(key: string): number {
@@ -28,19 +31,23 @@ export const GameState = {
 
   loadFromFile(): void {
     dataMap.clear();
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key?.startsWith(PREFIX)) {
-        const val = localStorage.getItem(key);
-        if (val !== null) dataMap.set(key.slice(PREFIX.length), val);
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key?.startsWith(PREFIX)) {
+          const val = localStorage.getItem(key);
+          if (val !== null) dataMap.set(key.slice(PREFIX.length), val);
+        }
       }
-    }
+    } catch { /* storage unavailable */ }
   },
 
   saveToFile(): void {
     dataMap.set('save_present', '1');
-    for (const [key, val] of dataMap) {
-      localStorage.setItem(PREFIX + key, val);
-    }
+    try {
+      for (const [key, val] of dataMap) {
+        localStorage.setItem(PREFIX + key, val);
+      }
+    } catch { /* storage unavailable or full */ }
   },
 } as const;

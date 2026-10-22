@@ -6,11 +6,15 @@
     "build": "esbuild src/main.ts --bundle --outfile=dist/game.js --format=iife --platform=browser --target=es2020",
     "watch": "esbuild src/main.ts --bundle --outfile=dist/game.js --format=iife --platform=browser --target=es2020 --watch",
     "typecheck": "tsc --noEmit",
-    "serve": "python3 -m http.server 8080"
+    "serve": "python3 -m http.server 8080",
+    "test": "node test/run.mjs"
   },
   "devDependencies": {
-    "esbuild": "^0.20.0",
-    "puppeteer-core": "^24.37.3",
-    "typescript": "^5.4.0"
+    "esbuild": "^0.28.2",
+    "puppeteer-core": "^25.15.0",
+    "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }
