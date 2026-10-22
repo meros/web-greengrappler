@@ -1,0 +1,44 @@
+name: Check
+
+# Typecheck, build and browser tests. Runs on pull requests, and deploy.yml
+# calls it first so a push to main only deploys when it is green.
+on:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: cachix/install-nix-action@v31
+
+      # Typecheck (tsc), bundle parse check and the production bundle.
+      - name: Nix flake check
+        run: nix flake check
+
+      - name: Build the site
+        run: nix build .#site -o site
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install test dependencies
+        working-directory: web
+        run: npm ci
+
+      # Puppeteer drives the Chrome that ships on the runner.
+      - name: Browser tests
+        working-directory: web
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+          SITE_DIR: ../site
+        run: npm test
