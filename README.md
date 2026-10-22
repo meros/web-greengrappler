@@ -2,7 +2,7 @@
 
 A 2D platformer originally made for Speedhack 2011, ported from Java/PlayN to TypeScript + HTML5 Canvas.
 
-**Play it here:** https://green-grappler-pendiioeqq-lz.a.run.app
+**Play it here:** https://grappler.meros.vip
 
 ## Controls
 
