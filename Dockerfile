@@ -3,7 +3,7 @@
 # (Dependabot opens PRs for the docker ecosystem as well).
 
 # nixos/nix 2.35.3
-FROM nixos/nix:2.35.3@sha256:ff480dbb23511aa1c10710aa068ceea5b93fed9bfce5f5379f3a6b07282cbc7b AS build
+FROM nixos/nix:2.35.4@sha256:f159a58f390677f41e8e900a74b6e2f9c7f27b364122ae6acf7a652ce6c551c0 AS build
 
 COPY . /app
 WORKDIR /app
@@ -11,7 +11,7 @@ WORKDIR /app
 RUN nix build .#site --extra-experimental-features 'nix-command flakes' -o /app/site
 
 # nginx 1.30.6 (stable line) on Alpine 3.24
-FROM nginx:1.30.6-alpine3.24@sha256:c59d1f8b1e0e42da75be973424cd72e23f7f8adfb54e982f4d1cd0216a5a5576
+FROM nginx:1.31.8-alpine3.24@sha256:785835ea65db4bba6f021acc0f3be91b0fef76a53fe41f8588c6698d2aed0606
 
 # Replaces the image's main config; the stock conf.d/default.conf is removed so
 # only our server block exists. Writes only to /tmp, so it can run as non-root.
