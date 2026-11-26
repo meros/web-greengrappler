@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: cachix/install-nix-action@v31
+      - uses: cachix/install-nix-action@v32
 
       # Typecheck (tsc), bundle parse check and the production bundle.
       - name: Nix flake check
